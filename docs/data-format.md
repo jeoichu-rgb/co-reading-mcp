@@ -105,3 +105,13 @@ Submitted user notes use `data/reading_sessions.json` to avoid sending the same 
 ```
 
 Changing `sessionId` intentionally resets chunk context dedupe, so cross-session handoffs include the relevant chunk text again.
+
+## Runtime Caches
+
+The server keeps lightweight in-process caches:
+
+- manifest files are cached by file signature
+- chunk text is cached by file signature for repeated reads/searches
+- annotation counts are cached by `annotations.jsonl` signature
+
+Writes that change annotations clear the annotation cache immediately. Restarting the server clears all caches.

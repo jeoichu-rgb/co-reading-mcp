@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
@@ -13,6 +13,22 @@ const booksDir = path.join(dataDir, "books");
 const annotationsPath = path.join(dataDir, "annotations.jsonl");
 const progressPath = path.join(dataDir, "progress.json");
 const sessionsPath = path.join(dataDir, "reading_sessions.json");
+
+const manifestCache = new Map();
+const chunkTextCache = new Map();
+const annotationCache = {
+  signature: null,
+  rows: [],
+  bookCounts: new Map(),
+  chunkCounts: new Map(),
+};
+
+function invalidateAnnotationCache() {
+  annotationCache.signature = null;
+  annotationCache.rows = [];
+  annotationCache.bookCounts = new Map();
+  annotationCache.chunkCounts = new Map();
+}
 
 function resolveInside(baseDir, ...parts) {
   const base = path.resolve(baseDir);
@@ -33,6 +49,16 @@ async function readJson(filePath, fallback) {
   }
 }
 
+async function fileSignature(filePath) {
+  try {
+    const info = await stat(filePath);
+    return `${info.mtimeMs}:${info.size}`;
+  } catch (error) {
+    if (error.code === "ENOENT") return "missing";
+    throw error;
+  }
+}
+
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
@@ -49,10 +75,38 @@ function asArray(value) {
 }
 
 export async function loadManifest(bookId) {
-  const manifest = await readJson(resolveInside(booksDir, bookId, "manifest.json"), null);
+  const manifestPath = resolveInside(booksDir, bookId, "manifest.json");
+  const signature = await fileSignature(manifestPath);
+  const cached = manifestCache.get(manifestPath);
+  if (cached?.signature === signature) return cached.manifest;
+
+  const manifest = await readJson(manifestPath, null);
   if (!manifest) throw new Error(`Unknown bookId: ${bookId}`);
   manifest.chunks = asArray(manifest.chunks);
+  manifestCache.set(manifestPath, { signature, manifest });
   return manifest;
+}
+
+async function annotationSummary() {
+  const signature = await fileSignature(annotationsPath);
+  if (annotationCache.signature === signature) {
+    return annotationCache;
+  }
+
+  const rows = await readAllAnnotations();
+  const bookCounts = new Map();
+  const chunkCounts = new Map();
+  for (const annotation of rows) {
+    bookCounts.set(annotation.bookId, (bookCounts.get(annotation.bookId) || 0) + 1);
+    const chunkKey = chunkContextKey(annotation.bookId, annotation.chunkId);
+    chunkCounts.set(chunkKey, (chunkCounts.get(chunkKey) || 0) + 1);
+  }
+
+  annotationCache.signature = signature;
+  annotationCache.rows = rows;
+  annotationCache.bookCounts = bookCounts;
+  annotationCache.chunkCounts = chunkCounts;
+  return annotationCache;
 }
 
 export async function listBooks() {
@@ -65,11 +119,7 @@ export async function listBooks() {
   }
 
   const progress = await loadProgress();
-  const annotations = await listAnnotations({});
-  const annotationCounts = new Map();
-  for (const annotation of annotations) {
-    annotationCounts.set(annotation.bookId, (annotationCounts.get(annotation.bookId) || 0) + 1);
-  }
+  const annotations = await annotationSummary();
 
   const books = [];
   for (const entry of entries) {
@@ -84,7 +134,7 @@ export async function listBooks() {
         language: manifest.language || null,
         chunkCount: manifest.chunks.length,
         chunksRead: readIds.size,
-        annotationCount: annotationCounts.get(manifest.bookId) || 0,
+        annotationCount: annotations.bookCounts.get(manifest.bookId) || 0,
         lastChunkId: progress[manifest.bookId]?.lastChunkId || null,
         lastReadAt: progress[manifest.bookId]?.lastReadAt || null,
       });
@@ -99,11 +149,7 @@ export async function listChunks(bookId) {
   const manifest = await loadManifest(bookId);
   const progress = await loadProgress();
   const readIds = new Set(progress[bookId]?.readChunkIds || []);
-  const annotations = await listAnnotations({ bookId });
-  const counts = new Map();
-  for (const annotation of annotations) {
-    counts.set(annotation.chunkId, (counts.get(annotation.chunkId) || 0) + 1);
-  }
+  const annotations = await annotationSummary();
 
   return manifest.chunks
     .slice()
@@ -111,7 +157,7 @@ export async function listChunks(bookId) {
     .map((chunk) => ({
       ...chunk,
       read: readIds.has(chunk.id),
-      annotationCount: counts.get(chunk.id) || 0,
+      annotationCount: annotations.chunkCounts.get(chunkContextKey(bookId, chunk.id)) || 0,
     }));
 }
 
@@ -121,7 +167,13 @@ export async function readChunk(bookId, chunkId) {
   if (!chunk) throw new Error(`Unknown chunkId for ${bookId}: ${chunkId}`);
   const bookDir = resolveInside(booksDir, bookId);
   const chunkPath = resolveInside(bookDir, chunk.path);
-  const text = await readFile(chunkPath, "utf8");
+  const signature = await fileSignature(chunkPath);
+  const cached = chunkTextCache.get(chunkPath);
+  let text = cached?.signature === signature ? cached.text : null;
+  if (text === null) {
+    text = await readFile(chunkPath, "utf8");
+    chunkTextCache.set(chunkPath, { signature, text });
+  }
   return {
     bookId,
     title: manifest.title,
@@ -140,7 +192,7 @@ export async function searchChunks({ bookId, query, limit = 10 }) {
   const needle = query.toLocaleLowerCase();
 
   for (const book of books) {
-    const id = book.bookId || book.bookId;
+    const id = book.bookId;
     const chunks = await listChunks(id);
     for (const chunk of chunks) {
       const text = (await readChunk(id, chunk.id)).text;
@@ -305,7 +357,8 @@ async function readAllAnnotations() {
 }
 
 export async function listAnnotations({ bookId, chunkId, kind, author, status, parentId } = {}) {
-  return (await readAllAnnotations())
+  const annotations = await annotationSummary();
+  return annotations.rows
     .filter((item) => !bookId || item.bookId === bookId)
     .filter((item) => !chunkId || item.chunkId === chunkId)
     .filter((item) => !kind || item.kind === kind)
@@ -344,6 +397,7 @@ export async function annotatePassage(input) {
 
   await mkdir(dataDir, { recursive: true });
   await appendFile(annotationsPath, `${JSON.stringify(annotation)}\n`, "utf8");
+  invalidateAnnotationCache();
   return annotation;
 }
 
@@ -375,6 +429,7 @@ export async function submitUserNotes({
 
   if (submitted.length > 0) {
     await writeJsonl(annotationsPath, updated);
+    invalidateAnnotationCache();
   }
 
   const context = await buildSubmissionContext(submitted, {

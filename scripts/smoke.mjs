@@ -68,6 +68,41 @@ if (!importedManifest.chunks.some((chunk) => chunk.sectionTitle === "Chapter Two
 if (importedManifest.chunks.some((chunk) => chunk.title.startsWith("Spine Demo Part"))) {
   throw new Error("EPUB import used whole-book Part titles instead of section titles");
 }
+const tempTxt = path.join(tempDataDir, "heading-demo.txt");
+await writeFile(
+  tempTxt,
+  [
+    "Chapter One",
+    "",
+    "First chapter paragraph. It should keep its own title.",
+    "",
+    "Chapter Two",
+    "",
+    "Second chapter paragraph. It should become another section.",
+  ].join("\n"),
+  "utf8",
+);
+execFileSync("python3", [
+  path.join(root, "scripts/import_text.py"),
+  tempTxt,
+  "--title",
+  "Heading Demo",
+  "--out",
+  path.join(tempDataDir, "books"),
+  "--book-id",
+  "heading-demo",
+  "--heading-regex",
+  "^Chapter\\s+\\w+",
+]);
+const txtManifest = JSON.parse(
+  await readFile(path.join(tempDataDir, "books", "heading-demo", "manifest.json"), "utf8"),
+);
+if (!txtManifest.chunks.some((chunk) => chunk.sectionTitle === "Chapter One")) {
+  throw new Error("TXT import did not preserve first regex heading");
+}
+if (!txtManifest.chunks.some((chunk) => chunk.sectionTitle === "Chapter Two")) {
+  throw new Error("TXT import did not preserve second regex heading");
+}
 await mkdir(path.join(tempDataDir, "books", "bad-book"), { recursive: true });
 await writeFile(
   path.join(tempDataDir, "books", "bad-book", "manifest.json"),

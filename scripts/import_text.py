@@ -168,6 +168,23 @@ def write_book(
     )
 
 
+def sections_from_heading_regex(text: str, heading_regex: str) -> list[dict[str, Any]]:
+    pattern = re.compile(heading_regex, re.MULTILINE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return []
+
+    sections: list[dict[str, Any]] = []
+    for index, match in enumerate(matches):
+        start = match.start()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        section_text = text[start:end].strip()
+        title = match.group(1).strip() if match.groups() else match.group(0).strip()
+        if section_text:
+            sections.append({"title": title, "text": section_text, "sourcePath": None})
+    return sections
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
@@ -176,10 +193,32 @@ def main() -> None:
     parser.add_argument("--book-id")
     parser.add_argument("--out", type=Path, default=Path("data/books"))
     parser.add_argument("--max-chars", type=int, default=6000)
+    parser.add_argument(
+        "--heading-regex",
+        help=(
+            "Optional multiline regex for TXT section headings. If the regex has a capture "
+            "group, group 1 becomes the section title; otherwise the full match is used."
+        ),
+    )
     args = parser.parse_args()
 
     text = args.input.read_text(encoding="utf-8")
-    book_dir = write_book(text, args.title, args.author, args.out, args.book_id, args.max_chars)
+    if args.heading_regex:
+        sections = sections_from_heading_regex(text, args.heading_regex)
+        if sections:
+            book_dir = write_book_sections(
+                sections,
+                args.title,
+                args.author,
+                args.out,
+                args.book_id,
+                args.max_chars,
+                {"type": "text", "headingRegex": args.heading_regex},
+            )
+        else:
+            book_dir = write_book(text, args.title, args.author, args.out, args.book_id, args.max_chars)
+    else:
+        book_dir = write_book(text, args.title, args.author, args.out, args.book_id, args.max_chars)
     print(book_dir)
 
 

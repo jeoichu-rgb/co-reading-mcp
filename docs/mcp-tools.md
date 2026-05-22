@@ -2,7 +2,7 @@
 
 ## `reading_list_books`
 
-Returns all imported books with progress and annotation counts.
+Returns all imported books with progress and annotation counts. Annotation counts are cached by `annotations.jsonl` file signature so repeated calls do not re-parse the JSONL file unless it changes.
 
 ## `reading_list_chunks`
 
@@ -33,6 +33,8 @@ Input:
 ```
 
 Returns matching snippets.
+
+Chunk text is cached by file signature after first read. Search is still a simple substring scan, but repeated searches avoid re-reading every chunk from disk.
 
 ## `reading_annotate_passage`
 

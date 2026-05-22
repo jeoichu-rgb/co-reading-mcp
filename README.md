@@ -5,7 +5,7 @@ A local MCP server that gives Claude a durable reading room:
 - import EPUB or plain text into stable chunks while preserving EPUB spine/chapter boundaries
 - list books and chunks
 - read chunk-by-chunk with `prevId` / `nextId`
-- search across a book
+- search across a book with cached chunk text
 - write margin annotations
 - stage user notes, submit them to Claude once, and attach Claude replies under them
 - track reading progress
@@ -47,6 +47,14 @@ Plain text:
 
 ```bash
 python3 scripts/import_text.py ./book.txt --title "Book Title" --author "Author" --out ./data/books
+```
+
+Plain text can also preserve section headings with a multiline regex:
+
+```bash
+python3 scripts/import_text.py ./book.txt \
+  --title "Book Title" \
+  --heading-regex "^第[一二三四五六七八九十百零〇0-9]+[章节回].*$"
 ```
 
 EPUB:
