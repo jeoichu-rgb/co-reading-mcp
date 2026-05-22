@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 import {
   annotatePassage,
   dataDir,
@@ -16,7 +17,7 @@ import {
 
 const protocolVersion = "2024-11-05";
 
-const tools = [
+export const tools = [
   {
     name: "reading_list_books",
     description: "List imported books with progress and annotation counts.",
@@ -187,7 +188,7 @@ function textContent(value) {
   };
 }
 
-async function callTool(name, args = {}) {
+export async function callTool(name, args = {}) {
   switch (name) {
     case "reading_list_books":
       return textContent(await listBooks());
@@ -214,7 +215,7 @@ async function callTool(name, args = {}) {
   }
 }
 
-async function handle(message) {
+export async function handle(message) {
   if (!message || message.jsonrpc !== "2.0") return null;
 
   if (message.method === "initialize") {
@@ -242,20 +243,28 @@ async function handle(message) {
   return error(message.id, -32601, `Method not found: ${message.method}`);
 }
 
-const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+export function startStdioServer({ input = process.stdin, output = process.stdout } = {}) {
+  const rl = readline.createInterface({ input, crlfDelay: Infinity });
 
-rl.on("line", async (line) => {
-  if (!line.trim()) return;
-  try {
-    const response = await handle(JSON.parse(line));
-    if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
-  } catch (err) {
-    let id = null;
+  rl.on("line", async (line) => {
+    if (!line.trim()) return;
     try {
-      id = JSON.parse(line).id ?? null;
-    } catch {
-      // Keep id null for parse errors.
+      const response = await handle(JSON.parse(line));
+      if (response) output.write(`${JSON.stringify(response)}\n`);
+    } catch (err) {
+      let id = null;
+      try {
+        id = JSON.parse(line).id ?? null;
+      } catch {
+        // Keep id null for parse errors.
+      }
+      output.write(`${JSON.stringify(error(id, -32000, err.message || String(err)))}\n`);
     }
-    process.stdout.write(`${JSON.stringify(error(id, -32000, err.message || String(err)))}\n`);
-  }
-});
+  });
+
+  return rl;
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  startStdioServer();
+}

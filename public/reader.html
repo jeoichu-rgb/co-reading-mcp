@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Co-Reading</title>
+    <link rel="stylesheet" href="/reader.css" />
+  </head>
+  <body>
+    <main class="app">
+      <section class="sidebar" aria-label="Library">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Co-Reading</p>
+            <h1>Library</h1>
+          </div>
+          <button id="refresh" class="icon-button" title="Refresh library">↻</button>
+        </header>
+        <div id="books" class="books" aria-live="polite"></div>
+      </section>
+
+      <section class="chapters" aria-label="Chapters">
+        <header class="panel-head">
+          <p id="book-meta" class="eyebrow">Choose a book</p>
+          <h2 id="book-title">Reading shelf</h2>
+        </header>
+        <div id="chunks" class="chunk-list"></div>
+      </section>
+
+      <section class="reader" aria-label="Reader">
+        <header class="reader-head">
+          <div>
+            <p id="chunk-file" class="eyebrow">No chapter selected</p>
+            <h2 id="chunk-title">Open a chapter to start reading</h2>
+          </div>
+          <button id="mark-read" class="secondary-button" disabled>Mark read</button>
+        </header>
+
+        <article id="text" class="text">
+          <p class="empty">Select a book and chapter. Highlight text to leave a note for Claude.</p>
+        </article>
+
+        <aside id="margins" class="margins" aria-label="Margin notes"></aside>
+
+        <form id="note-form" class="note-form" hidden>
+          <div class="quote-preview" id="quote-preview"></div>
+          <textarea id="note" rows="3" placeholder="Leave a note for Claude..."></textarea>
+          <div class="form-actions">
+            <button type="button" id="cancel-note" class="secondary-button">Cancel</button>
+            <button type="submit" class="primary-button">Save note</button>
+          </div>
+        </form>
+
+        <footer class="submitbar">
+          <span id="status">Open notes stay local until you send them.</span>
+          <button id="submit-notes" class="primary-button" disabled>Send to Claude</button>
+        </footer>
+      </section>
+    </main>
+    <script type="module" src="/reader.js"></script>
+  </body>
+</html>

@@ -266,6 +266,73 @@ const badMarkRead = await request("tools/call", {
 });
 
 server.kill();
+const httpPort = 18000 + (process.pid % 10000);
+const httpServer = spawn(process.execPath, [path.join(root, "src/http.js")], {
+  env: {
+    ...process.env,
+    READING_MCP_DATA_DIR: tempDataDir,
+    READING_HTTP_PORT: String(httpPort),
+  },
+  stdio: ["pipe", "pipe", "pipe"],
+});
+let httpNextId = 1;
+const httpPending = new Map();
+let httpStdoutBuffer = "";
+httpServer.stdout.setEncoding("utf8");
+httpServer.stdout.on("data", (chunk) => {
+  httpStdoutBuffer += chunk;
+  const lines = httpStdoutBuffer.split("\n");
+  httpStdoutBuffer = lines.pop() || "";
+  for (const line of lines.filter(Boolean)) {
+    const msg = JSON.parse(line);
+    const resolve = httpPending.get(msg.id);
+    if (resolve) {
+      httpPending.delete(msg.id);
+      resolve(msg);
+    }
+  }
+});
+
+function httpMcpRequest(method, params) {
+  const id = httpNextId++;
+  httpServer.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  return new Promise((resolve) => httpPending.set(id, resolve));
+}
+
+async function fetchJson(pathname, options) {
+  const response = await fetch(`http://127.0.0.1:${httpPort}${pathname}`, {
+    headers: { "content-type": "application/json" },
+    ...options,
+    body: options?.body ? JSON.stringify(options.body) : undefined,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || response.statusText);
+  return data;
+}
+
+let httpBooks = null;
+for (let attempt = 0; attempt < 30; attempt += 1) {
+  try {
+    httpBooks = await fetchJson("/api/books");
+    break;
+  } catch {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+if (!httpBooks) throw new Error("HTTP reader API did not start");
+const httpMcpInit = await httpMcpRequest("initialize", {});
+const httpChunk = await fetchJson("/api/books/demo-book/chunks/ch00");
+const httpNote = await fetchJson("/api/annotations", {
+  method: "POST",
+  body: {
+    bookId: "demo-book",
+    chunkId: "ch00",
+    quote: "The reader can mark a sentence",
+    note: "HTTP reader note.",
+  },
+});
+const readerHtml = await fetch(`http://127.0.0.1:${httpPort}/`);
+httpServer.kill();
 await rm(tempDataDir, { recursive: true, force: true });
 
 if (!list.result?.content?.[0]?.text.includes("demo-book")) {
@@ -315,6 +382,21 @@ if (!badChunkPath.error?.message.includes("Path escapes data directory")) {
 }
 if (!badMarkRead.error?.message.includes("Unknown chunkId")) {
   throw new Error("reading_mark_read did not reject an unknown chunkId");
+}
+if (!httpBooks.some((book) => book.bookId === "demo-book")) {
+  throw new Error("HTTP API did not list demo-book");
+}
+if (httpMcpInit.result?.serverInfo?.name !== "co-reading-mcp") {
+  throw new Error("HTTP process did not keep MCP stdio active");
+}
+if (!httpChunk.text.includes("A Small Lamp")) {
+  throw new Error("HTTP API did not read chunk text");
+}
+if (!httpNote.id) {
+  throw new Error("HTTP API did not create a user note");
+}
+if (!readerHtml.ok || !(await readerHtml.text()).includes("Co-Reading")) {
+  throw new Error("HTTP reader did not serve the web UI");
 }
 
 console.log("smoke ok");

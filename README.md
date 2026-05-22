@@ -25,6 +25,29 @@ cp -R data.example data
 node src/server.js
 ```
 
+If you also want a human-friendly reading surface, start the bundled reader:
+
+```bash
+npm run reader
+```
+
+Open `http://127.0.0.1:8787`. This serves a small reference reader and local HTTP API while also keeping the MCP stdio server active in the same process. In Claude Desktop / Claude Code you can point the MCP command at `src/http.js` instead of `src/server.js` when you want one process to handle both:
+
+```json
+{
+  "mcpServers": {
+    "co-reading": {
+      "command": "node",
+      "args": ["/absolute/path/to/co-reading-mcp/src/http.js"],
+      "env": {
+        "READING_MCP_DATA_DIR": "/absolute/path/to/co-reading-mcp/data",
+        "READING_HTTP_PORT": "8787"
+      }
+    }
+  }
+}
+```
+
 For Claude Desktop / Claude Code, configure the MCP server as a stdio command:
 
 ```json
@@ -101,6 +124,21 @@ data/
 
 See [docs/mcp-tools.md](docs/mcp-tools.md) and [docs/data-format.md](docs/data-format.md).
 For the intended Claude workflow, see [docs/claude-workflow.md](docs/claude-workflow.md).
+
+## Frontend Integration
+
+The bundled reader is intentionally small: it is a reference UI, not a required frontend. Existing apps can talk to the same local HTTP API:
+
+- `GET /api/books`
+- `GET /api/books/:bookId/chunks`
+- `GET /api/books/:bookId/chunks/:chunkId`
+- `GET /api/annotations?bookId=...&chunkId=...`
+- `POST /api/annotations`
+- `POST /api/submit-notes`
+- `POST /api/mark-read`
+- `GET /api/search?q=...&bookId=...`
+
+Human notes are saved as open local notes first. Pressing "Send to Claude" calls `reading_submit_user_notes`, includes chunk context according to the session policy, marks those notes submitted, and avoids resending the same open notes.
 
 ## Privacy
 
