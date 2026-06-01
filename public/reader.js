@@ -15,6 +15,8 @@ const state = {
   lastFinish: null,
   toastTimer: null,
   refreshInFlight: false,
+  composing: false,
+  replyDrafts: {},
 };
 
 const $ = (id) => document.getElementById(id);
@@ -107,10 +109,11 @@ function renderReply(reply, root) {
 
 function renderThread(note, notes) {
   const replies = notes.filter((item) => item.parentId === note.id);
+  const draft = state.replyDrafts[note.id] || "";
   return `<div class="thread">
     ${replies.map((reply) => renderReply(reply, note)).join("")}
     <form class="reply-form" data-parent-id="${escapeHtml(note.id)}">
-      <textarea rows="2" placeholder="Reply in this margin..."></textarea>
+      <textarea rows="2" placeholder="Reply in this margin...">${escapeHtml(draft)}</textarea>
       <button type="submit" class="primary-button">Reply</button>
     </form>
   </div>`;
@@ -130,11 +133,14 @@ function renderBooks() {
       const total = book.chunkCount || 0;
       const read = book.chunksRead || 0;
       const pct = total ? Math.round((read / total) * 100) : 0;
-      return `<button class="book ${book.bookId === state.bookId ? "active" : ""}" data-book="${escapeHtml(book.bookId)}">
-        <span class="book-title">${escapeHtml(book.title || book.bookId)}</span>
-        <span class="book-meta">${escapeHtml(book.author || "Unknown author")} · ${read}/${total} · ${book.annotationCount || 0} notes</span>
-        <span class="progress"><span style="width: ${pct}%"></span></span>
-      </button>`;
+      return `<div class="book-row ${book.bookId === state.bookId ? "active" : ""}">
+        <button class="book" data-book="${escapeHtml(book.bookId)}">
+          <span class="book-title">${escapeHtml(book.title || book.bookId)}</span>
+          <span class="book-meta">${escapeHtml(book.author || "Unknown author")} · ${read}/${total} · ${book.annotationCount || 0} notes</span>
+          <span class="progress"><span style="width: ${pct}%"></span></span>
+        </button>
+        <button class="book-delete" data-delete-book="${escapeHtml(book.bookId)}" title="Delete this book">Delete</button>
+      </div>`;
     })
     .join("");
 }
@@ -379,6 +385,7 @@ async function selectBook(bookId) {
   state.chunkId = null;
   state.chunk = null;
   state.activeAnnotationId = null;
+  state.replyDrafts = {};
   state.chunks = await api(`/api/books/${encodeURIComponent(bookId)}/chunks`);
   state.annotations = await api(`/api/annotations?bookId=${encodeURIComponent(bookId)}`);
   const book = state.books.find((item) => item.bookId === bookId);
@@ -395,6 +402,40 @@ async function selectBook(bookId) {
   renderChunks();
   renderAnnotations();
   scrollToPanel(".chapters");
+}
+
+function clearBookSelection() {
+  state.bookId = null;
+  state.chunkId = null;
+  state.chunk = null;
+  state.annotations = [];
+  state.chunks = [];
+  state.activeAnnotationId = null;
+  state.cardCandidates = [];
+  state.replyDrafts = {};
+  $("book-meta").textContent = "Choose a book";
+  $("book-title").textContent = "Reading shelf";
+  $("chunk-file").textContent = "No chapter selected";
+  $("chunk-title").textContent = "Open a chapter to start reading";
+  $("text").innerHTML = `<p class="empty">Select a book and chapter. Highlight text to leave a note for Claude.</p>`;
+  $("mark-read").disabled = true;
+  $("continue-reading").disabled = true;
+  $("show-card").disabled = true;
+  document.body.classList.remove("has-book", "has-chunk");
+  renderChunks();
+  renderAnnotations();
+}
+
+async function deleteBookFromShelf(bookId) {
+  const book = state.books.find((item) => item.bookId === bookId);
+  const label = book?.title || bookId;
+  if (!confirm(`Delete "${label}" from this library?\n\nThe files and related notes will be archived under data/trash.`)) return;
+
+  const result = await api(`/api/books/${encodeURIComponent(bookId)}`, { method: "DELETE" });
+  $("status").textContent = result.message || `Deleted ${label}.`;
+  await loadBooks();
+  if (state.bookId === bookId) clearBookSelection();
+  renderBooks();
 }
 
 async function selectChunk(chunkId) {
@@ -435,12 +476,27 @@ function activateAnnotation(noteId, { scroll = false } = {}) {
   }
 }
 
-async function refreshCurrent() {
+function isEditingDraft() {
+  const active = document.activeElement;
+  return Boolean(
+    state.composing ||
+      active?.matches?.("textarea, input") ||
+      active?.closest?.(".reply-form, .note-form"),
+  );
+}
+
+async function refreshCurrent({ force = false } = {}) {
   if (state.refreshInFlight) return;
+  if (!force && isEditingDraft()) return;
   state.refreshInFlight = true;
   try {
     await loadBooks();
     if (state.bookId) {
+      if (!state.books.some((book) => book.bookId === state.bookId)) {
+        clearBookSelection();
+        $("status").textContent = "This book was deleted from the active library.";
+        return;
+      }
       state.chunks = await api(`/api/books/${encodeURIComponent(state.bookId)}/chunks`);
       state.annotations = await api(`/api/annotations?bookId=${encodeURIComponent(state.bookId)}`);
       renderBooks();
@@ -455,6 +511,11 @@ async function refreshCurrent() {
 }
 
 $("books").addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-book]");
+  if (deleteButton) {
+    deleteBookFromShelf(deleteButton.dataset.deleteBook).catch(showError);
+    return;
+  }
   const button = event.target.closest("[data-book]");
   if (button) selectBook(button.dataset.book).catch(showError);
 });
@@ -498,7 +559,7 @@ $("note-form").addEventListener("submit", async (event) => {
   $("note-form").hidden = true;
   window.getSelection()?.removeAllRanges();
   updateSelectionAction();
-  await refreshCurrent();
+  await refreshCurrent({ force: true });
 });
 
 $("note-selection").addEventListener("click", () => {
@@ -512,7 +573,7 @@ $("margins").addEventListener("click", (event) => {
   if (card) activateAnnotation(card.dataset.noteId);
 });
 
-$("margins").addEventListener("submit", async (event) => {
+document.addEventListener("submit", async (event) => {
   const form = event.target.closest(".reply-form");
   if (!form) return;
   event.preventDefault();
@@ -529,7 +590,25 @@ $("margins").addEventListener("submit", async (event) => {
     },
   });
   textarea.value = "";
-  await refreshCurrent();
+  delete state.replyDrafts[form.dataset.parentId];
+  await refreshCurrent({ force: true });
+});
+
+document.addEventListener("input", (event) => {
+  const textarea = event.target.closest("textarea");
+  const form = event.target.closest(".reply-form");
+  if (!textarea || !form) return;
+  state.replyDrafts[form.dataset.parentId] = textarea.value;
+});
+
+document.addEventListener("compositionstart", (event) => {
+  if (!event.target.closest?.(".reply-form, .note-form")) return;
+  state.composing = true;
+});
+
+document.addEventListener("compositionend", (event) => {
+  if (!event.target.closest?.(".reply-form, .note-form")) return;
+  state.composing = false;
 });
 
 $("submit-notes").addEventListener("click", async () => {
@@ -541,7 +620,7 @@ $("submit-notes").addEventListener("click", async () => {
       contextMode: "chunk-once-per-session",
     },
   });
-  await refreshCurrent();
+  await refreshCurrent({ force: true });
   $("status").textContent = result.submissionId
     ? `Shared ${result.count} note${result.count === 1 ? "" : "s"} with Claude. Submission ${result.submissionId}.`
     : result.message || "No private notes to share.";
@@ -553,7 +632,7 @@ $("mark-read").addEventListener("click", async () => {
     body: { bookId: state.bookId, chunkId: state.chunkId },
   });
   state.lastFinish = result.finish || null;
-  await refreshCurrent();
+  await refreshCurrent({ force: true });
   refreshCards({ finish: state.lastFinish, show: Boolean(state.lastFinish) });
   if (!state.lastFinish && state.cardCandidates.some((card) => card.source === "shared")) {
     showToast("收获了一枚回声书签");
@@ -571,7 +650,7 @@ $("continue-reading").addEventListener("click", async () => {
   await selectChunk(chunkId);
 });
 
-$("refresh").addEventListener("click", () => refreshCurrent().catch(showError));
+$("refresh").addEventListener("click", () => refreshCurrent({ force: true }).catch(showError));
 
 $("show-card").addEventListener("click", openCardPanel);
 

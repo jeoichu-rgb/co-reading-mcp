@@ -140,3 +140,11 @@ The server keeps lightweight in-process caches:
 - annotation counts are cached by `annotations.jsonl` signature
 
 Writes that change annotations clear the annotation cache immediately. Writes to annotations, progress, and session context are serialized through an in-process queue to avoid read-modify-write overlap in multi-client use. Restarting the server clears all caches.
+
+## Trash
+
+Deleting a book is a soft delete. The active book folder moves from `data/books/<book-id>` to `data/trash/books/<book-id>-<timestamp>/book`.
+
+The same archive directory also receives `deleted-book-data.json`, which contains the removed progress entry, annotations, submissions, cards, and session ledger references for that book. Active JSON/JSONL files are rewritten without those records, so the book disappears from the reader and can be re-imported cleanly.
+
+Trash archives are retained for 30 days by default and pruned on later delete operations. Set `READING_TRASH_RETENTION_DAYS=0` to disable automatic pruning, or set another positive day count to change the retention window.

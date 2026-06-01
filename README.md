@@ -189,6 +189,7 @@ data/
 - `reading_import_part`
 - `reading_import_finish`
 - `reading_import_cancel`
+- `reading_delete_book`
 - `reading_annotate_passage`
 - `reading_list_annotations`
 - `reading_submit_user_notes`
@@ -212,6 +213,7 @@ For the intended Claude workflow, see [docs/claude-workflow.md](docs/claude-work
 The bundled reader is intentionally small: it is a reference UI, not a required frontend. Existing apps can talk to the same local HTTP API:
 
 - `GET /api/books`
+- `DELETE /api/books/:bookId`
 - `GET /api/books/:bookId/chunks`
 - `GET /api/books/:bookId/chunks/:chunkId`
 - `GET /api/continue?bookId=...`
@@ -224,6 +226,8 @@ The bundled reader is intentionally small: it is a reference UI, not a required 
 - `POST /api/import`
 
 Human notes are saved as open local notes first. Pressing "Send to Claude" calls `reading_submit_user_notes`, includes chunk context according to the session policy, marks those notes submitted, and avoids resending the same open notes.
+
+Deleting a book removes it from the active library and archives the book folder plus related progress, annotations, submissions, and cards under `data/trash/books/...`. Trash is pruned after 30 days by default; set `READING_TRASH_RETENTION_DAYS=0` to keep trash forever.
 
 Small ritual cards/bookmarks can be collected with `reading_collect_card`. Claude can then use `reading_card_inbox` like a quiet bookmark inbox, open a visual card with `reading_open_card`, save it as a local image with `reading_save_card`, or clear it with `reading_dismiss_card`. They are meant for completed sections, shared-margin moments, quiet passages worth carrying forward, and a separate `Last Fold` card when the final chunk of a book is marked read.
 

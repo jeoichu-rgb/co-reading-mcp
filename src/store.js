@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import crypto from "node:crypto";
@@ -16,6 +16,8 @@ const submissionsPath = path.join(dataDir, "submissions.jsonl");
 const cardsPath = path.join(dataDir, "cards.jsonl");
 const progressPath = path.join(dataDir, "progress.json");
 const sessionsPath = path.join(dataDir, "reading_sessions.json");
+const trashDir = path.join(dataDir, "trash");
+const defaultTrashRetentionDays = 30;
 
 const manifestCache = new Map();
 const chunkTextCache = new Map();
@@ -81,6 +83,41 @@ async function writeJsonl(filePath, rows) {
   await mkdir(path.dirname(filePath), { recursive: true });
   const body = rows.map((row) => JSON.stringify(row)).join("\n");
   await writeFile(filePath, body ? `${body}\n` : "", "utf8");
+}
+
+function safeTrashName(value) {
+  return String(value || "book").replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(0, 120) || "book";
+}
+
+function trashRetentionDays() {
+  const configured = Number(process.env.READING_TRASH_RETENTION_DAYS ?? defaultTrashRetentionDays);
+  return Number.isFinite(configured) && configured > 0 ? configured : 0;
+}
+
+async function pruneOldTrash(nowMs = Date.now()) {
+  const retentionDays = trashRetentionDays();
+  if (!retentionDays) return { retentionDays, pruned: 0 };
+
+  const booksTrashDir = path.join(trashDir, "books");
+  let entries = [];
+  try {
+    entries = await readdir(booksTrashDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code === "ENOENT") return { retentionDays, pruned: 0 };
+    throw error;
+  }
+
+  const cutoff = nowMs - retentionDays * 24 * 60 * 60 * 1000;
+  let pruned = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const entryPath = resolveInside(booksTrashDir, entry.name);
+    const info = await stat(entryPath);
+    if (info.mtimeMs >= cutoff) continue;
+    await rm(entryPath, { recursive: true, force: true });
+    pruned += 1;
+  }
+  return { retentionDays, pruned };
 }
 
 function asArray(value) {
@@ -529,6 +566,121 @@ export async function listBooks({ includePrivate = false } = {}) {
     }
   }
   return books.sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function rowReferencesBook(row, bookIds) {
+  return bookIds.has(row.bookId) || asArray(row.bookIds).some((bookId) => bookIds.has(bookId));
+}
+
+export async function deleteBook(bookId) {
+  if (!bookId) throw new Error("bookId is required");
+
+  return withWriteLock(async () => {
+    const manifest = await loadManifest(bookId);
+    const bookIds = new Set([bookId, manifest.bookId].filter(Boolean));
+    const requestedBookDir = resolveInside(booksDir, bookId);
+    const now = new Date().toISOString();
+    const archiveDir = resolveInside(
+      trashDir,
+      "books",
+      `${safeTrashName(manifest.bookId || bookId)}-${now.replace(/[:.]/g, "-")}-${crypto.randomBytes(3).toString("hex")}`,
+    );
+    const archivedBookDir = path.join(archiveDir, "book");
+
+    const progress = await loadProgress();
+    const annotations = await readAllAnnotations();
+    const submissions = await readAllSubmissions();
+    const cards = await readAllCards();
+    const sessions = await readJson(sessionsPath, { sessions: {} });
+
+    const removedProgress = Object.fromEntries(
+      Object.entries(progress).filter(([id]) => bookIds.has(id)),
+    );
+    const keptProgress = Object.fromEntries(
+      Object.entries(progress).filter(([id]) => !bookIds.has(id)),
+    );
+    const removedAnnotations = annotations.filter((row) => rowReferencesBook(row, bookIds));
+    const keptAnnotations = annotations.filter((row) => !rowReferencesBook(row, bookIds));
+    const removedSubmissions = submissions.filter((row) => rowReferencesBook(row, bookIds));
+    const keptSubmissions = submissions.filter((row) => !rowReferencesBook(row, bookIds));
+    const removedCards = cards.filter((row) => rowReferencesBook(row, bookIds));
+    const keptCards = cards.filter((row) => !rowReferencesBook(row, bookIds));
+
+    const keptSessions = { sessions: {} };
+    const removedSessions = { sessions: {} };
+    for (const [sessionId, session] of Object.entries(sessions.sessions || {})) {
+      const chunkEntries = Object.entries(session.chunks || {});
+      const annotationEntries = Object.entries(session.annotations || {});
+      const keptChunks = Object.fromEntries(
+        chunkEntries.filter(([key, value]) => {
+          const keyBookId = key.split("/")[0];
+          return !bookIds.has(keyBookId) && !bookIds.has(value?.bookId);
+        }),
+      );
+      const removedChunks = Object.fromEntries(
+        chunkEntries.filter(([key, value]) => {
+          const keyBookId = key.split("/")[0];
+          return bookIds.has(keyBookId) || bookIds.has(value?.bookId);
+        }),
+      );
+      const keptSessionAnnotations = Object.fromEntries(
+        annotationEntries.filter(([, value]) => !bookIds.has(value?.bookId)),
+      );
+      const removedSessionAnnotations = Object.fromEntries(
+        annotationEntries.filter(([, value]) => bookIds.has(value?.bookId)),
+      );
+      if (Object.keys(keptChunks).length || Object.keys(keptSessionAnnotations).length) {
+        keptSessions.sessions[sessionId] = { ...session, chunks: keptChunks, annotations: keptSessionAnnotations };
+      }
+      if (Object.keys(removedChunks).length || Object.keys(removedSessionAnnotations).length) {
+        removedSessions.sessions[sessionId] = { ...session, chunks: removedChunks, annotations: removedSessionAnnotations };
+      }
+    }
+
+    await mkdir(archiveDir, { recursive: true });
+    await rename(requestedBookDir, archivedBookDir);
+    await writeJson(path.join(archiveDir, "deleted-book-data.json"), {
+      deletedAt: now,
+      requestedBookId: bookId,
+      manifestBookId: manifest.bookId,
+      title: manifest.title,
+      author: manifest.author || null,
+      archivedBookDir,
+      removed: {
+        progress: removedProgress,
+        annotations: removedAnnotations,
+        submissions: removedSubmissions,
+        cards: removedCards,
+        sessions: removedSessions,
+      },
+    });
+
+    await writeJson(progressPath, keptProgress);
+    await writeJsonl(annotationsPath, keptAnnotations);
+    await writeJsonl(submissionsPath, keptSubmissions);
+    await writeJsonl(cardsPath, keptCards);
+    await writeJson(sessionsPath, keptSessions);
+    const trash = await pruneOldTrash(Date.parse(now));
+
+    manifestCache.clear();
+    chunkTextCache.clear();
+    invalidateAnnotationCache();
+
+    return {
+      bookId: manifest.bookId || bookId,
+      title: manifest.title,
+      deletedAt: now,
+      archivedAt: archiveDir,
+      removed: {
+        annotations: removedAnnotations.length,
+        submissions: removedSubmissions.length,
+        cards: removedCards.length,
+        progressEntries: Object.keys(removedProgress).length,
+      },
+      trash,
+      message: `Deleted "${manifest.title || manifest.bookId || bookId}" from the active library and archived its data under data/trash.`,
+    };
+  });
 }
 
 export async function listChunks(bookId, { includePrivate = false } = {}) {

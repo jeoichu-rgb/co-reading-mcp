@@ -375,6 +375,15 @@ const dismissedInbox = await request("tools/call", {
   name: "reading_card_inbox",
   arguments: { bookId: "mcp-import" },
 });
+const deleteWithoutConfirm = await request("tools/call", {
+  name: "reading_delete_book",
+  arguments: { bookId: "chunked-import", confirm: false },
+});
+const deleteChunkedImport = await request("tools/call", {
+  name: "reading_delete_book",
+  arguments: { bookId: "chunked-import", confirm: true },
+});
+const booksAfterMcpDelete = await request("tools/call", { name: "reading_list_books", arguments: {} });
 const badImportBookId = await request("tools/call", {
   name: "reading_import_book",
   arguments: {
@@ -562,6 +571,34 @@ const httpImport = await fetchJson("/api/import", {
     headingRegex: "^HTTP\\s+\\w+",
   },
 });
+const httpImportNote = await fetchJson("/api/annotations", {
+  method: "POST",
+  body: {
+    bookId: "http-import",
+    chunkId: "ch00",
+    quote: "Imported through the REST API.",
+    note: "Delete smoke note.",
+  },
+});
+await fetchJson("/api/mark-read", {
+  method: "POST",
+  body: { bookId: "http-import", chunkId: "ch00" },
+});
+const httpImportCard = await fetchJson("/api/cards", {
+  method: "POST",
+  body: {
+    bookId: "http-import",
+    chunkId: "ch00",
+    title: "Delete Smoke Card",
+    quote: "Imported through the REST API.",
+    note: "Delete smoke card.",
+  },
+});
+const httpDeleteBook = await fetchJson("/api/books/http-import", { method: "DELETE" });
+const httpBooksAfterDelete = await fetchJson("/api/books");
+const httpDeletedProgress = await fetchJson("/api/progress?bookId=http-import");
+const httpDeletedAnnotations = await fetchJson("/api/annotations?bookId=http-import");
+const httpDeletedCards = await fetchJson("/api/cards?bookId=http-import");
 const readerHtml = await fetch(`http://127.0.0.1:${httpPort}/`);
 httpServer.kill();
 const ssePort = httpPort + 1;
@@ -693,6 +730,19 @@ if (contentJson(chunkedPartA).parts !== 1 || contentJson(chunkedPartB).parts !==
 if (contentJson(chunkedFinish).bookId !== "chunked-import" || contentJson(chunkedFinish).chunkCount !== 2) {
   throw new Error("reading_import_finish did not import chunked TXT upload");
 }
+if (!deleteWithoutConfirm.error?.message.includes("confirm: true")) {
+  throw new Error("reading_delete_book did not require explicit confirmation");
+}
+if (
+  contentJson(deleteChunkedImport).bookId !== "chunked-import" ||
+  !contentJson(deleteChunkedImport).archivedAt ||
+  contentJson(deleteChunkedImport).trash?.retentionDays !== 30
+) {
+  throw new Error("reading_delete_book did not archive a deleted book");
+}
+if (contentJson(booksAfterMcpDelete).some((book) => book.bookId === "chunked-import")) {
+  throw new Error("reading_delete_book kept deleted book in list_books");
+}
 if (contentJson(markImportFirst).complete !== false) {
   throw new Error("reading_mark_read marked a partial book complete");
 }
@@ -812,6 +862,18 @@ if (httpCardDismiss.status !== "dismissed") {
 }
 if (httpImport.bookId !== "http-import" || httpImport.chunkCount !== 2) {
   throw new Error("HTTP API did not import a book");
+}
+if (!httpImportNote.id || !httpImportCard.id) {
+  throw new Error("HTTP API did not create delete smoke fixtures");
+}
+if (httpDeleteBook.bookId !== "http-import" || !httpDeleteBook.archivedAt) {
+  throw new Error("HTTP API did not delete and archive a book");
+}
+if (httpBooksAfterDelete.some((book) => book.bookId === "http-import")) {
+  throw new Error("HTTP API kept a deleted book in the active library");
+}
+if (httpDeletedProgress !== null || httpDeletedAnnotations.length !== 0 || httpDeletedCards.length !== 0) {
+  throw new Error("HTTP API did not remove deleted book state from active records");
 }
 if (!readerHtml.ok || !(await readerHtml.text()).includes("Co-Reading")) {
   throw new Error("HTTP reader did not serve the web UI");

@@ -7,6 +7,7 @@ import {
   collectCard,
   continueReading,
   dataDir,
+  deleteBook,
   dismissCard,
   getProgress,
   listCardInbox,
@@ -176,6 +177,21 @@ export const tools = [
       additionalProperties: false,
     },
     annotations: { title: "Cancel Import" },
+  },
+  {
+    name: "reading_delete_book",
+    description:
+      "Delete a book from the active library and archive its book folder plus related progress, annotations, submissions, and cards under data/trash. Requires confirm: true.",
+    inputSchema: {
+      type: "object",
+      required: ["bookId", "confirm"],
+      properties: {
+        bookId: { type: "string" },
+        confirm: { type: "boolean" },
+      },
+      additionalProperties: false,
+    },
+    annotations: { title: "Delete Book", destructiveHint: true },
   },
   {
     name: "reading_annotate_passage",
@@ -455,6 +471,9 @@ export async function callTool(name, args = {}) {
       return textContent(await finishImport(args));
     case "reading_import_cancel":
       return textContent(await cancelImport(args));
+    case "reading_delete_book":
+      if (args.confirm !== true) throw new Error("reading_delete_book requires confirm: true");
+      return textContent(await deleteBook(args.bookId));
     case "reading_annotate_passage":
       return textContent(await annotatePassage({ ...args, author: "claude", status: "published" }));
     case "reading_list_annotations":

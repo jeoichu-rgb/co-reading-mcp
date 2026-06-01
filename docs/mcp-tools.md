@@ -79,6 +79,18 @@ For TXT/Markdown imports, optional fields mirror `scripts/import_text.py`:
 
 The server validates the file type, upload size, and `bookId`, writes the book into `data/books`, and returns the imported `bookId`, title, and chunk count.
 
+## `reading_delete_book`
+
+Input:
+
+```json
+{ "bookId": "anthropic-guidelines", "confirm": true }
+```
+
+Deletes a book from the active library. This is a soft delete: the book folder and removed active records are archived under `data/trash/books/...`.
+
+The active `progress.json`, `annotations.jsonl`, `submissions.jsonl`, `cards.jsonl`, and session context ledger are rewritten without records for that book, so re-importing the same `bookId` starts cleanly. The tool requires `confirm: true` to avoid accidental deletion. Trash is pruned after 30 days by default; set `READING_TRASH_RETENTION_DAYS=0` to keep trash forever.
+
 ## Chunked Import
 
 Use chunked import when a file is too large for one JSON-RPC body.

@@ -5,6 +5,7 @@ import {
   annotatePassage,
   collectCard,
   continueReading,
+  deleteBook,
   dismissCard,
   getProgress,
   listCardInbox,
@@ -76,6 +77,10 @@ export async function handleApi(req, res, url, options = {}) {
 
   if (req.method === "GET" && parts.length === 4 && parts[1] === "books" && parts[3] === "chunks") {
     return sendJson(res, 200, await listChunks(parts[2], { includePrivate: true }));
+  }
+
+  if (req.method === "DELETE" && parts.length === 3 && parts[1] === "books") {
+    return sendJson(res, 200, await deleteBook(parts[2]));
   }
 
   if (req.method === "GET" && parts.length === 5 && parts[1] === "books" && parts[3] === "chunks") {
