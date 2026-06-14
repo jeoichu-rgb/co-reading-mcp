@@ -185,20 +185,19 @@ function renderBooks() {
     .map((book, i) => {
       const total = book.chunkCount || 0;
       const read = book.chunksRead || 0;
-      const pct = total ? Math.round((read / total) * 100) : 0;
       const coverHtml = book.coverImage
         ? `<img class="book-cover" src="/api/books/${encodeURIComponent(book.bookId)}/cover" alt="" loading="lazy">`
         : `<div class="book-cover-placeholder" style="background: ${COVER_GRADIENTS[i % COVER_GRADIENTS.length]}">${escapeHtml((book.title || "").slice(0, 4))}</div>`;
+      const shortTitle = (book.title || book.bookId).length > 12 ? (book.title || book.bookId).slice(0, 12) + "…" : (book.title || book.bookId);
       return `<div class="book-row ${book.bookId === state.bookId ? "active" : ""}">
         <button class="book" data-book="${escapeHtml(book.bookId)}">
           ${coverHtml}
-          <div>
-            <span class="book-title">${escapeHtml(book.title || book.bookId)}</span>
-            <span class="book-meta">${escapeHtml(book.author || "Unknown author")} · ${read}/${total} · ${book.annotationCount || 0} notes</span>
-            <span class="progress"><span style="width: ${pct}%"></span></span>
+          <div class="book-info">
+            <span class="book-title">${escapeHtml(shortTitle)}</span>
+            <span class="book-meta">${read}/${total} · ${book.annotationCount || 0} notes</span>
           </div>
         </button>
-        <button class="book-delete" data-delete-book="${escapeHtml(book.bookId)}" title="Delete this book">Delete</button>
+        <button class="book-delete" data-delete-book="${escapeHtml(book.bookId)}" title="Delete">×</button>
       </div>`;
     })
     .join("");

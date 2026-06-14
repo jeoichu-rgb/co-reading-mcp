@@ -99,20 +99,21 @@ h2 {
   line-height: 1.12;
 }
 
-.books,
+.books {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+
 .chunk-list {
   display: grid;
   gap: 12px;
 }
 
 .book-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: stretch;
+  position: relative;
 }
 
-.book,
 .chunk,
 .note-card {
   width: 100%;
@@ -124,76 +125,112 @@ h2 {
   box-shadow: none;
 }
 
-.book,
 .chunk {
   padding: 16px;
 }
 
 .book {
-  display: grid;
-  grid-template-columns: 56px 1fr;
-  gap: 12px;
-  align-items: start;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
 }
 
 .book-cover {
-  width: 56px;
-  height: 80px;
-  border-radius: 3px 8px 8px 3px;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 4px 10px 10px 4px;
   object-fit: cover;
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.12);
+  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .book-cover-placeholder {
-  width: 56px;
-  height: 80px;
-  border-radius: 3px 8px 8px 3px;
-  background: linear-gradient(145deg, #e8e2d6, #d5cfc3);
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: 4px 10px 10px 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 800;
-  color: rgba(82, 74, 96, 0.32);
-  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.12);
+  color: rgba(255, 255, 255, 0.5);
+  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   text-align: center;
   line-height: 1.2;
-  padding: 4px;
+  padding: 8px;
 }
 
-.book:hover,
+.book-info {
+  padding: 0 4px 8px;
+}
+
+.book:hover .book-cover,
+.book:hover .book-cover-placeholder,
+.book-row.active .book-cover,
+.book-row.active .book-cover-placeholder {
+  box-shadow: 2px 4px 16px rgba(217, 121, 92, 0.3);
+}
+
 .chunk:hover,
-.book.active,
-.chunk.active,
-.book-row.active .book {
+.chunk.active {
   border-color: var(--accent-soft);
   background: var(--panel-strong);
 }
 
 .book-delete {
-  align-self: stretch;
-  border: 1px solid transparent;
-  border-radius: 18px;
-  background: transparent;
-  color: var(--muted);
-  padding: 0 12px;
-  font-size: 13px;
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.book-row:hover .book-delete {
+  display: flex;
 }
 
 .book-delete:hover {
-  border-color: var(--accent-soft);
-  color: var(--accent);
-  background: var(--accent-soft);
+  background: var(--accent);
 }
 
-.book-title,
+.book-title {
+  display: block;
+  font-weight: 700;
+  font-size: 13px;
+  line-height: 1.3;
+}
+
 .chunk-title {
   display: block;
   font-weight: 800;
 }
 
-.book-meta,
+.book-meta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 .chunk-meta {
   display: block;
   margin-top: 6px;
