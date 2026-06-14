@@ -19,6 +19,7 @@ const state = {
   refreshInFlight: false,
   composing: false,
   replyDrafts: {},
+  noteColor: "yellow",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -106,8 +107,13 @@ function applyFontSize(size) {
 applyFontSize(loadFontSize());
 
 function updateChunkNav() {
-  $("prev-chunk").disabled = !state.chunk?.prevId;
-  $("next-chunk").disabled = !state.chunk?.nextId;
+  const hasPrev = !!state.chunk?.prevId;
+  const hasNext = !!state.chunk?.nextId;
+  $("prev-chunk").disabled = !hasPrev;
+  $("next-chunk").disabled = !hasNext;
+  $("bottom-prev").disabled = !hasPrev;
+  $("bottom-next").disabled = !hasNext;
+  $("bottom-nav").hidden = !state.chunkId;
 }
 
 function showToast(message) {
@@ -239,7 +245,7 @@ function renderText() {
     const end = start + quote.length;
     if (occupied.some((range) => start < range.end && end > range.start)) continue;
     occupied.push({ start, end });
-    highlights.push({ start, end, note, shared: sharedIds.has(note.id) });
+    highlights.push({ start, end, note, shared: sharedIds.has(note.id), color: note.color || "yellow" });
   }
 
   let html = "";
@@ -248,7 +254,7 @@ function renderText() {
     html += escapeHtml(text.slice(cursor, highlight.start));
     const quote = escapeHtml(text.slice(highlight.start, highlight.end));
     const bookmark = highlight.shared ? `<span class="shared-bookmark" title="这里有两个人的折痕。">此处有回声</span>` : "";
-    html += `<mark class="${highlight.note.id === state.activeAnnotationId ? "active" : ""} ${highlight.shared ? "shared" : ""}" data-note-id="${escapeHtml(highlight.note.id)}" title="${escapeHtml(highlight.note.note)}">${quote}</mark>${bookmark}${
+    html += `<mark class="hl-${highlight.color} ${highlight.note.id === state.activeAnnotationId ? "active" : ""} ${highlight.shared ? "shared" : ""}" data-note-id="${escapeHtml(highlight.note.id)}" title="${escapeHtml(highlight.note.note)}">${quote}</mark>${bookmark}${
       highlight.note.id === state.activeAnnotationId ? renderInlineNote(highlight.note, notes) : ""
     }`;
     cursor = highlight.end;
@@ -692,6 +698,7 @@ $("note-form").addEventListener("submit", async (event) => {
       quoteOffset: state.quoteOffset,
       note,
       kind: "note",
+      color: state.noteColor,
     },
   });
   $("note-form").hidden = true;
@@ -808,6 +815,26 @@ $("prev-chunk").addEventListener("click", () => {
 
 $("next-chunk").addEventListener("click", () => {
   if (state.chunk?.nextId) selectChunk(state.chunk.nextId).catch(showError);
+});
+
+$("bottom-prev").addEventListener("click", () => {
+  if (state.chunk?.prevId) { selectChunk(state.chunk.prevId).catch(showError); window.scrollTo({ top: 0 }); }
+});
+
+$("bottom-next").addEventListener("click", () => {
+  if (state.chunk?.nextId) { selectChunk(state.chunk.nextId).catch(showError); window.scrollTo({ top: 0 }); }
+});
+
+$("back-to-shelf").addEventListener("click", () => {
+  clearBookSelection();
+  renderBooks();
+});
+
+document.querySelector(".color-picker").addEventListener("click", (e) => {
+  const dot = e.target.closest(".color-dot");
+  if (!dot) return;
+  state.noteColor = dot.dataset.color;
+  document.querySelectorAll(".color-dot").forEach((d) => d.classList.toggle("active", d === dot));
 });
 
 $("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));

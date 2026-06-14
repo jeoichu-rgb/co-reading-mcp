@@ -1247,6 +1247,7 @@ export async function annotatePassage(input) {
       tags: Array.isArray(input.tags) ? input.tags : [],
       status: input.status || (isHumanAuthor(author) ? "open" : "published"),
       parentId,
+      color: input.color || null,
       quoteOffset: quoteOffset >= 0 ? quoteOffset : null,
       prevId: chunk.prevId,
       nextId: chunk.nextId,

@@ -25,8 +25,11 @@
 
       <section class="chapters" aria-label="Chapters">
         <header class="panel-head">
-          <p id="book-meta" class="eyebrow">Choose a book</p>
-          <h2 id="book-title">Reading shelf</h2>
+          <div>
+            <p id="book-meta" class="eyebrow">Choose a book</p>
+            <h2 id="book-title">Reading shelf</h2>
+          </div>
+          <button id="back-to-shelf" class="secondary-button">← Library</button>
         </header>
         <div id="chunks" class="chunk-list"></div>
       </section>
@@ -55,8 +58,18 @@
 
         <aside id="margins" class="margins" aria-label="Margin notes"></aside>
 
+        <nav id="bottom-nav" class="bottom-nav" hidden>
+          <button id="bottom-prev" class="secondary-button" disabled>‹ Previous</button>
+          <button id="bottom-next" class="secondary-button" disabled>Next ›</button>
+        </nav>
+
         <form id="note-form" class="note-form" hidden>
           <div class="quote-preview" id="quote-preview"></div>
+          <div class="color-picker">
+            <button type="button" class="color-dot active" data-color="yellow" title="Lemon yellow"></button>
+            <button type="button" class="color-dot" data-color="blue" title="Smoke blue"></button>
+            <button type="button" class="color-dot" data-color="grey" title="Light grey"></button>
+          </div>
           <textarea id="note" rows="3" placeholder="Leave a note for Claude..."></textarea>
           <div class="form-actions">
             <button type="button" id="cancel-note" class="secondary-button">Cancel</button>
