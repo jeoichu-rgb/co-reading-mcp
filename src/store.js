@@ -554,6 +554,7 @@ export async function listBooks({ includePrivate = false } = {}) {
         title: manifest.title,
         author: manifest.author || null,
         language: manifest.language || null,
+        coverImage: manifest.coverImage || null,
         chunkCount: manifest.chunks.length,
         chunksRead: summary.chunksRead,
         annotationCount: bookCounts.get(manifest.bookId) || 0,

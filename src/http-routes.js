@@ -5,6 +5,7 @@ import {
   annotatePassage,
   collectCard,
   continueReading,
+  dataDir,
   deleteBook,
   dismissCard,
   getProgress,
@@ -14,6 +15,7 @@ import {
   listAnnotations,
   listBooks,
   listChunks,
+  loadManifest,
   markRead,
   readCard,
   readChunk,
@@ -23,6 +25,7 @@ import {
 } from "./store.js";
 import { importBook } from "./importer.js";
 import { renderCardPng, renderCardSvg } from "./card-renderer.js";
+import { buildEpub } from "./epub-export.js";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const publicDir = path.join(ROOT, "public");
@@ -34,6 +37,11 @@ const contentTypes = {
   ".js": "text/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
 };
 
 export function sendJson(res, status, value) {
@@ -227,6 +235,139 @@ export async function handleApi(req, res, url, options = {}) {
         limit: Number(url.searchParams.get("limit") || 10),
       }),
     );
+  }
+
+  if (req.method === "GET" && parts.length === 4 && parts[1] === "books" && parts[3] === "cover") {
+    const manifest = await loadManifest(parts[2]);
+    if (!manifest.coverImage) return sendError(res, 404, "No cover image");
+    const booksDir = path.join(dataDir, "books");
+    const coverPath = path.resolve(booksDir, parts[2], manifest.coverImage);
+    if (!coverPath.startsWith(path.resolve(booksDir))) return sendError(res, 403, "Forbidden");
+    try {
+      const data = await readFile(coverPath);
+      const ext = path.extname(coverPath).toLowerCase();
+      res.writeHead(200, {
+        "content-type": contentTypes[ext] || "application/octet-stream",
+        "cache-control": "public, max-age=86400",
+      });
+      res.end(data);
+    } catch (error) {
+      if (error.code === "ENOENT") return sendError(res, 404, "Cover not found");
+      throw error;
+    }
+    return;
+  }
+
+  if (req.method === "GET" && parts.length === 2 && parts[1] === "export") {
+    const bookId = url.searchParams.get("bookId");
+    if (!bookId) return sendError(res, 400, "bookId is required");
+    const format = (url.searchParams.get("format") || "epub").toLowerCase();
+    const chunks = await listChunks(bookId, { includePrivate: true });
+    const allAnnotations = await listAnnotations({ bookId, includePrivate: true });
+    const sorted = chunks.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+    const chaptersWithText = [];
+    let bookTitle = bookId;
+    let bookAuthor = null;
+    for (const chunk of sorted) {
+      const data = await readChunk(bookId, chunk.id);
+      if (!bookAuthor) { bookTitle = data.title || bookId; bookAuthor = data.author || null; }
+      chaptersWithText.push({ ...chunk, text: data.text });
+    }
+
+    let coverData = null;
+    let coverExt = null;
+    try {
+      const manifest = await loadManifest(bookId);
+      if (manifest.coverImage) {
+        const booksDir = path.join(dataDir, "books");
+        const coverPath = path.resolve(booksDir, bookId, manifest.coverImage);
+        if (coverPath.startsWith(path.resolve(booksDir))) {
+          coverData = await readFile(coverPath);
+          coverExt = path.extname(manifest.coverImage).toLowerCase().replace(".", "");
+        }
+      }
+    } catch {}
+
+    const safeName = (bookTitle || "export").replace(/[^\w一-鿿 -]/gu, "_");
+
+    if (format === "epub") {
+      const epub = buildEpub({
+        title: bookTitle,
+        author: bookAuthor,
+        chapters: chaptersWithText,
+        annotations: allAnnotations,
+        coverData,
+        coverExt,
+      });
+      res.writeHead(200, {
+        "content-type": "application/epub+zip",
+        "content-disposition": `attachment; filename="${encodeURIComponent(safeName)}.epub"`,
+      });
+      res.end(epub);
+      return;
+    }
+
+    const esc = (s) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    let coverImg = "";
+    if (coverData && coverExt) {
+      const mime = coverExt === "png" ? "image/png" : coverExt === "gif" ? "image/gif" : "image/jpeg";
+      coverImg = `<div class="cover"><img src="data:${mime};base64,${coverData.toString("base64")}" alt="Cover"></div>`;
+    }
+
+    let body = "";
+    for (const chunk of chaptersWithText) {
+      const text = esc(chunk.text).replace(/\n/g, "<br>");
+      body += `<section class="chapter"><h2>${esc(chunk.title)}</h2><div class="text">${text}</div>`;
+      const roots = allAnnotations
+        .filter((a) => a.chunkId === chunk.id && !a.parentId)
+        .sort((a, b) => (a.quoteOffset ?? Infinity) - (b.quoteOffset ?? Infinity));
+      if (roots.length) {
+        body += `<div class="annotations"><h3>批注</h3>`;
+        for (const ann of roots) {
+          body += `<div class="ann">`;
+          if (ann.quote) body += `<blockquote>${esc(ann.quote)}</blockquote>`;
+          body += `<p class="note"><span class="author">${esc(ann.author)}</span> <span class="kind">${esc(ann.kind || "note")}</span> ${esc(ann.note)}</p>`;
+          const replies = allAnnotations.filter((a) => a.parentId === ann.id).sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+          for (const reply of replies) {
+            body += `<p class="reply"><span class="author">${esc(reply.author)}</span> ${esc(reply.note)}</p>`;
+          }
+          body += `</div>`;
+        }
+        body += `</div>`;
+      }
+      body += `</section>`;
+    }
+
+    const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(bookTitle)}</title>
+<style>
+:root{color-scheme:light dark;--bg:#faf8f4;--text:#1f1e1b;--muted:#8a8883;--accent:#d9795c;--panel:rgba(255,255,255,.72);--line:rgba(45,42,36,.1)}
+@media(prefers-color-scheme:dark){:root{--bg:#11100f;--text:#f3eee8;--muted:#aaa29a;--panel:rgba(255,255,255,.07);--line:rgba(255,255,255,.1)}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.6}
+.wrap{max-width:720px;margin:0 auto;padding:24px 20px 80px}
+.cover{text-align:center;margin:0 0 32px}.cover img{max-width:280px;max-height:400px;border-radius:6px 12px 12px 6px;box-shadow:4px 4px 20px rgba(0,0,0,.15)}
+h1{font-size:32px;margin:0 0 8px}h2{font-size:22px;margin:48px 0 16px;padding-bottom:8px;border-bottom:1px solid var(--line)}h3{font-size:15px;color:var(--muted);margin:24px 0 12px;text-transform:uppercase;letter-spacing:.06em}
+.meta{color:var(--muted);font-size:15px;margin:0 0 32px}
+.text{font-family:Georgia,"Times New Roman","Songti SC",serif;font-size:18px;line-height:1.85;white-space:pre-wrap}
+.annotations{margin:20px 0 0;padding:16px;border-radius:16px;background:var(--panel)}
+.ann{margin:0 0 20px}.ann:last-child{margin:0}
+blockquote{margin:0 0 8px;padding:8px 12px;border-left:3px solid var(--accent);color:var(--muted);font-family:Georgia,"Songti SC",serif;font-size:15px;line-height:1.6}
+.note{margin:0 0 4px;font-size:15px;line-height:1.55}
+.reply{margin:0 0 4px;padding-left:20px;font-size:14px;line-height:1.5;color:var(--text)}
+.reply::before{content:"↳ ";color:var(--muted)}
+.author{font-weight:700}.kind{color:var(--muted);font-size:13px}
+.chapter{margin:0 0 16px}
+</style></head><body><div class="wrap">
+${coverImg}<h1>${esc(bookTitle)}</h1>${bookAuthor ? `<p class="meta">${esc(bookAuthor)}</p>` : ""}
+${body}
+</div></body></html>`;
+
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-disposition": `attachment; filename="${encodeURIComponent(safeName)}.html"`,
+    });
+    res.end(html);
+    return;
   }
 
   return sendError(res, 404, "Not found");

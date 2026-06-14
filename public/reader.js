@@ -23,6 +23,18 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const authTokenKey = "co-reading-auth-token";
+const fontSizeKey = "co-reading-font-size";
+const defaultFontSize = 24;
+const minFontSize = 14;
+const maxFontSize = 40;
+const COVER_GRADIENTS = [
+  "linear-gradient(145deg, #e8e2d6, #d5cfc3)",
+  "linear-gradient(145deg, #d6dfe8, #c3cdd5)",
+  "linear-gradient(145deg, #e8d6d6, #d5c3c3)",
+  "linear-gradient(145deg, #d6e8d8, #c3d5c6)",
+  "linear-gradient(145deg, #e2dce8, #d0c8d5)",
+  "linear-gradient(145deg, #e8e4d6, #d5d1c3)",
+];
 const urlToken = new URLSearchParams(location.search).get("token");
 if (urlToken) {
   localStorage.setItem(authTokenKey, urlToken);
@@ -79,6 +91,23 @@ function scrollToPanel(selector) {
   requestAnimationFrame(() => {
     document.querySelector(selector)?.scrollIntoView({ block: "start", behavior: "smooth" });
   });
+}
+
+function loadFontSize() {
+  return Number(localStorage.getItem(fontSizeKey)) || defaultFontSize;
+}
+
+function applyFontSize(size) {
+  const clamped = Math.max(minFontSize, Math.min(maxFontSize, size));
+  localStorage.setItem(fontSizeKey, clamped);
+  $("text").style.setProperty("--reader-font-size", `${clamped}px`);
+}
+
+applyFontSize(loadFontSize());
+
+function updateChunkNav() {
+  $("prev-chunk").disabled = !state.chunk?.prevId;
+  $("next-chunk").disabled = !state.chunk?.nextId;
 }
 
 function showToast(message) {
@@ -153,15 +182,21 @@ function renderInlineNote(note, notes) {
 
 function renderBooks() {
   $("books").innerHTML = state.books
-    .map((book) => {
+    .map((book, i) => {
       const total = book.chunkCount || 0;
       const read = book.chunksRead || 0;
       const pct = total ? Math.round((read / total) * 100) : 0;
+      const coverHtml = book.coverImage
+        ? `<img class="book-cover" src="/api/books/${encodeURIComponent(book.bookId)}/cover" alt="" loading="lazy">`
+        : `<div class="book-cover-placeholder" style="background: ${COVER_GRADIENTS[i % COVER_GRADIENTS.length]}">${escapeHtml((book.title || "").slice(0, 4))}</div>`;
       return `<div class="book-row ${book.bookId === state.bookId ? "active" : ""}">
         <button class="book" data-book="${escapeHtml(book.bookId)}">
-          <span class="book-title">${escapeHtml(book.title || book.bookId)}</span>
-          <span class="book-meta">${escapeHtml(book.author || "Unknown author")} · ${read}/${total} · ${book.annotationCount || 0} notes</span>
-          <span class="progress"><span style="width: ${pct}%"></span></span>
+          ${coverHtml}
+          <div>
+            <span class="book-title">${escapeHtml(book.title || book.bookId)}</span>
+            <span class="book-meta">${escapeHtml(book.author || "Unknown author")} · ${read}/${total} · ${book.annotationCount || 0} notes</span>
+            <span class="progress"><span style="width: ${pct}%"></span></span>
+          </div>
         </button>
         <button class="book-delete" data-delete-book="${escapeHtml(book.bookId)}" title="Delete this book">Delete</button>
       </div>`;
@@ -489,6 +524,9 @@ async function selectBook(bookId) {
   $("text").innerHTML = `<p class="empty">Choose a chapter. Highlight text to leave a note for Claude.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = false;
+  $("export-book").disabled = false;
+  $("prev-chunk").disabled = true;
+  $("next-chunk").disabled = true;
   document.body.classList.add("has-book");
   document.body.classList.remove("has-chunk");
   renderBooks();
@@ -514,6 +552,9 @@ function clearBookSelection() {
   $("mark-read").disabled = true;
   $("continue-reading").disabled = true;
   $("show-card").disabled = true;
+  $("export-book").disabled = true;
+  $("prev-chunk").disabled = true;
+  $("next-chunk").disabled = true;
   document.body.classList.remove("has-book", "has-chunk");
   renderChunks();
   renderAnnotations();
@@ -541,6 +582,7 @@ async function selectChunk(chunkId) {
   $("mark-read").disabled = false;
   $("continue-reading").disabled = false;
   document.body.classList.add("has-chunk");
+  updateChunkNav();
   renderChunks();
   renderText();
   renderAnnotations();
@@ -759,6 +801,37 @@ $("card-random").addEventListener("click", () => {
   if (!state.cardCandidates.length) return;
   state.cardIndex = (state.cardIndex + 1) % state.cardCandidates.length;
   renderCardPanel();
+});
+
+$("prev-chunk").addEventListener("click", () => {
+  if (state.chunk?.prevId) selectChunk(state.chunk.prevId).catch(showError);
+});
+
+$("next-chunk").addEventListener("click", () => {
+  if (state.chunk?.nextId) selectChunk(state.chunk.nextId).catch(showError);
+});
+
+$("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));
+$("font-larger").addEventListener("click", () => applyFontSize(loadFontSize() + 2));
+
+$("export-book").addEventListener("click", (e) => {
+  if (!state.bookId) return;
+  const existing = document.querySelector(".export-menu");
+  if (existing) { existing.remove(); return; }
+  const menu = document.createElement("div");
+  menu.className = "export-menu";
+  menu.innerHTML = `<button data-fmt="epub">EPUB</button><button data-fmt="html">HTML</button>`;
+  menu.style.cssText = "position:absolute;right:0;top:100%;display:flex;gap:6px;padding:8px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.12);z-index:10";
+  e.currentTarget.parentElement.style.position = "relative";
+  e.currentTarget.parentElement.appendChild(menu);
+  menu.addEventListener("click", (ev) => {
+    const fmt = ev.target.dataset.fmt;
+    if (!fmt) return;
+    window.open(`/api/export?bookId=${encodeURIComponent(state.bookId)}&format=${fmt}`, "_blank");
+    menu.remove();
+  });
+  const dismiss = (ev) => { if (!menu.contains(ev.target) && ev.target !== e.currentTarget) { menu.remove(); document.removeEventListener("click", dismiss); } };
+  setTimeout(() => document.addEventListener("click", dismiss), 0);
 });
 
 $("import-book").addEventListener("click", () => {

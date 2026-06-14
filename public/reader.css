@@ -129,6 +129,39 @@ h2 {
   padding: 16px;
 }
 
+.book {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.book-cover {
+  width: 56px;
+  height: 80px;
+  border-radius: 3px 8px 8px 3px;
+  object-fit: cover;
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.book-cover-placeholder {
+  width: 56px;
+  height: 80px;
+  border-radius: 3px 8px 8px 3px;
+  background: linear-gradient(145deg, #e8e2d6, #d5cfc3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 800;
+  color: rgba(82, 74, 96, 0.32);
+  box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+  text-align: center;
+  line-height: 1.2;
+  padding: 4px;
+}
+
 .book:hover,
 .chunk:hover,
 .book.active,
@@ -202,7 +235,7 @@ h2 {
   min-height: 0;
   padding: 10px 2px 96px;
   font-family: Georgia, "Times New Roman", "Songti SC", serif;
-  font-size: 24px;
+  font-size: var(--reader-font-size, 24px);
   line-height: 1.78;
   white-space: pre-wrap;
 }

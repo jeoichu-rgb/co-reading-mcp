@@ -18,8 +18,10 @@ from pathlib import Path
 
 from import_text import slugify, write_book_sections
 
+import json
 
 CONTAINER = "META-INF/container.xml"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 
 
 def ns_name(name: str) -> str:
@@ -90,6 +92,55 @@ def clean_metadata_author(value: str | None, title: str) -> str | None:
     if not author or author.lower() in {"unknown", "administrator"} or author == title:
         return None
     return author
+
+
+def find_cover_image_path(zf: zipfile.ZipFile, opf_path: str) -> str | None:
+    root = ET.fromstring(zf.read(opf_path))
+    opf_dir = str(Path(opf_path).parent)
+    if opf_dir == ".":
+        opf_dir = ""
+
+    cover_id = None
+    items: dict[str, dict[str, str]] = {}
+    for element in root.iter():
+        local = ns_name(element.tag)
+        if local == "meta" and element.attrib.get("name") == "cover":
+            cover_id = element.attrib.get("content")
+        elif local == "item":
+            item_id = element.attrib.get("id")
+            href = element.attrib.get("href")
+            if item_id and href:
+                full_href = str(Path(opf_dir) / href) if opf_dir else href
+                items[item_id] = {
+                    "href": full_href,
+                    "media_type": element.attrib.get("media-type", ""),
+                    "properties": element.attrib.get("properties", ""),
+                }
+
+    if cover_id and cover_id in items and "image" in items[cover_id]["media_type"]:
+        return items[cover_id]["href"]
+    for item in items.values():
+        if "cover-image" in item["properties"]:
+            return item["href"]
+    for item_id, item in items.items():
+        if "image" in item["media_type"] and "cover" in (item_id + item["href"]).lower():
+            return item["href"]
+    return None
+
+
+def extract_cover(zf: zipfile.ZipFile, cover_zip_path: str, book_dir: Path) -> str | None:
+    if not cover_zip_path:
+        return None
+    try:
+        data = zf.read(cover_zip_path)
+        ext = Path(cover_zip_path).suffix.lower()
+        if ext not in IMAGE_EXTENSIONS:
+            ext = ".jpg"
+        cover_filename = f"cover{ext}"
+        (book_dir / cover_filename).write_bytes(data)
+        return cover_filename
+    except (KeyError, Exception):
+        return None
 
 
 def find_opf_path(zf: zipfile.ZipFile) -> str | None:
@@ -207,16 +258,18 @@ def html_files(zf: zipfile.ZipFile) -> list[str]:
     )
 
 
-def read_epub(path: Path) -> tuple[str | None, str | None, list[dict[str, str]]]:
+def read_epub(path: Path) -> tuple[str | None, str | None, list[dict[str, str]], str | None]:
     with zipfile.ZipFile(path) as zf:
         opf_path = find_opf_path(zf)
         title = None
         author = None
         ordered: list[str] = []
         toc_titles: dict[str, str] = {}
+        cover_zip_path: str | None = None
         if opf_path:
             try:
                 title, author, ordered, toc_titles = parse_opf(zf, opf_path)
+                cover_zip_path = find_cover_image_path(zf, opf_path)
             except Exception:
                 ordered = []
         if not ordered:
@@ -245,7 +298,7 @@ def read_epub(path: Path) -> tuple[str | None, str | None, list[dict[str, str]]]
                 section_title = toc_titles.get(name) or title_from_html(raw) or f"Section {index + 1}"
                 sections.append({"title": section_title, "text": text, "sourcePath": name})
 
-    return title, author, sections
+    return title, author, sections, cover_zip_path
 
 
 def main() -> None:
@@ -258,7 +311,7 @@ def main() -> None:
     parser.add_argument("--max-chars", type=int, default=6000)
     args = parser.parse_args()
 
-    title, author, sections = read_epub(args.input)
+    title, author, sections, cover_zip_path = read_epub(args.input)
     final_title = args.title or clean_metadata_title(title, args.input.stem)
     final_author = args.author or clean_metadata_author(author, final_title)
     if not final_author and args.title and title and title != final_title:
@@ -280,6 +333,19 @@ def main() -> None:
         args.max_chars,
         {"type": "epub", "fileName": args.input.name},
     )
+
+    if cover_zip_path:
+        with zipfile.ZipFile(args.input) as zf:
+            cover_filename = extract_cover(zf, cover_zip_path, book_dir)
+            if cover_filename:
+                manifest_path = book_dir / "manifest.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["coverImage"] = cover_filename
+                manifest_path.write_text(
+                    json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+
     print(book_dir)
 
 
