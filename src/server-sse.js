@@ -49,6 +49,7 @@ function setAuthCookie(res, token) {
 
 function authorized(req, url) {
   if (!authToken) return true;
+  if (req._pathTokenAuth) return true;
   if (req.headers.authorization === `Bearer ${authToken}`) return true;
   if (url.searchParams.get("token") === authToken) return true;
   return decodeURIComponent(cookieToken(req)) === authToken;
@@ -107,6 +108,13 @@ async function route(req, res) {
   }
 
   const url = new URL(req.url || "/", `http://${req.headers.host || `${host}:${port}`}`);
+
+  const pathMatch = url.pathname.match(/^\/([^/]+)\/(sse|mcp|messages|health|api\/.*)$/);
+  if (pathMatch && authToken && pathMatch[1] === authToken) {
+    req._pathTokenAuth = true;
+    url.pathname = "/" + url.pathname.split("/").slice(2).join("/");
+  }
+
   if (authToken && url.searchParams.get("token") === authToken) {
     setAuthCookie(res, authToken);
     url.searchParams.delete("token");
