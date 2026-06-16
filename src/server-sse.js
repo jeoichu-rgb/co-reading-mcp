@@ -63,7 +63,8 @@ function externalBaseUrl(req) {
 }
 
 function endpointFor(req, sessionId) {
-  return `${externalBaseUrl(req)}/messages?sessionId=${encodeURIComponent(sessionId)}`;
+  const prefix = req._pathTokenPrefix || "";
+  return `${externalBaseUrl(req)}${prefix}/messages?sessionId=${encodeURIComponent(sessionId)}`;
 }
 
 function rpcError(id, code, message) {
@@ -112,6 +113,7 @@ async function route(req, res) {
   const pathMatch = url.pathname.match(/^\/([^/]+)\/(sse|mcp|messages|health|api\/.*)$/);
   if (pathMatch && authToken && pathMatch[1] === authToken) {
     req._pathTokenAuth = true;
+    req._pathTokenPrefix = "/" + pathMatch[1];
     url.pathname = "/" + url.pathname.split("/").slice(2).join("/");
   }
 
