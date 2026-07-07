@@ -133,8 +133,14 @@ function validReadIds(manifest, progressEntry = {}) {
   return new Set(asArray(progressEntry.readChunkIds).filter((chunkId) => chunkIds.has(chunkId)));
 }
 
+function validErikReadIds(manifest, progressEntry = {}) {
+  const chunkIds = new Set(manifest.chunks.map((chunk) => chunk.id));
+  return new Set(asArray(progressEntry.erikReadChunkIds).filter((chunkId) => chunkIds.has(chunkId)));
+}
+
 function progressSummary(manifest, progressEntry = {}) {
   const readIds = validReadIds(manifest, progressEntry);
+  const erikReadIds = validErikReadIds(manifest, progressEntry);
   return {
     lastChunkId: manifest.chunks.some((chunk) => chunk.id === progressEntry.lastChunkId) ? progressEntry.lastChunkId : null,
     lastReadAt: progressEntry.lastReadAt || null,
@@ -142,6 +148,9 @@ function progressSummary(manifest, progressEntry = {}) {
     chunksRead: readIds.size,
     chunkCount: manifest.chunks.length,
     complete: manifest.chunks.length > 0 && readIds.size === manifest.chunks.length,
+    erikReadChunkIds: Array.from(erikReadIds),
+    erikChunksRead: erikReadIds.size,
+    erikLastChunkId: manifest.chunks.some((chunk) => chunk.id === progressEntry.erikLastChunkId) ? progressEntry.erikLastChunkId : null,
   };
 }
 
@@ -696,13 +705,16 @@ export async function deleteBook(bookId) {
 export async function listChunks(bookId, { includePrivate = false } = {}) {
   const manifest = await loadManifest(bookId);
   const progress = await loadProgress();
-  const readIds = validReadIds(manifest, progress[bookId] || {});
+  const entry = progress[bookId] || {};
+  const readIds = validReadIds(manifest, entry);
+  const erikReadIds = validErikReadIds(manifest, entry);
   const annotations = await annotationSummary();
   const chunkCounts = includePrivate ? annotations.chunkCounts : annotations.publicChunkCounts;
 
   return sortedChunks(manifest).map((chunk) => ({
     ...chunk,
     read: readIds.has(chunk.id),
+    erikRead: erikReadIds.has(chunk.id),
     annotationCount: chunkCounts.get(chunkContextKey(bookId, chunk.id)) || 0,
   }));
 }
@@ -918,7 +930,7 @@ async function buildSubmissionContext(notes, options = {}) {
   };
 }
 
-export async function markRead(bookId, chunkId) {
+export async function markRead(bookId, chunkId, { reader = "jeoi" } = {}) {
   return withWriteLock(async () => {
     const manifest = await loadManifest(bookId);
     const targetChunk = manifest.chunks.find((chunk) => chunk.id === chunkId);
@@ -927,13 +939,26 @@ export async function markRead(bookId, chunkId) {
     }
     const progress = await loadProgress();
     const current = progress[bookId] || {};
-    const readIds = validReadIds(manifest, current);
-    readIds.add(chunkId);
-    progress[bookId] = {
-      lastChunkId: chunkId,
-      lastReadAt: new Date().toISOString(),
-      readChunkIds: Array.from(readIds),
-    };
+
+    if (reader === "erik") {
+      const erikIds = new Set(asArray(current.erikReadChunkIds).filter((id) => manifest.chunks.some((c) => c.id === id)));
+      erikIds.add(chunkId);
+      progress[bookId] = {
+        ...current,
+        erikReadChunkIds: Array.from(erikIds),
+        erikLastChunkId: chunkId,
+        erikLastReadAt: new Date().toISOString(),
+      };
+    } else {
+      const readIds = validReadIds(manifest, current);
+      readIds.add(chunkId);
+      progress[bookId] = {
+        ...current,
+        lastChunkId: chunkId,
+        lastReadAt: new Date().toISOString(),
+        readChunkIds: Array.from(readIds),
+      };
+    }
     await writeJson(progressPath, progress);
     const summary = progressSummary(manifest, progress[bookId]);
     const result = {

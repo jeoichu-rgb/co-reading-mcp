@@ -209,12 +209,20 @@ function renderBooks() {
     .join("");
 }
 
+function chunkReadBadges(chunk) {
+  const badges = [];
+  if (chunk.read) badges.push('<span class="badge badge-human" title="Jeoi read">✓ Jeoi</span>');
+  if (chunk.erikRead) badges.push('<span class="badge badge-ai" title="Erik read">✓ Erik</span>');
+  if (!chunk.read && !chunk.erikRead) badges.push('<span class="badge badge-unread">unread</span>');
+  return badges.join(" ");
+}
+
 function renderChunks() {
   $("chunks").innerHTML = state.chunks
     .map(
       (chunk) => `<button class="chunk ${chunk.id === state.chunkId ? "active" : ""}" data-chunk="${escapeHtml(chunk.id)}">
         <span class="chunk-title">${escapeHtml(chunk.title)}</span>
-        <span class="chunk-meta">${escapeHtml(chunk.id)} · ${chunk.read ? "read" : "unread"} · ${chunk.annotationCount || 0} notes</span>
+        <span class="chunk-meta">${escapeHtml(chunk.id)} · ${chunkReadBadges(chunk)} · ${chunk.annotationCount || 0} notes</span>
       </button>`,
     )
     .join("");
@@ -584,6 +592,14 @@ async function selectChunk(chunkId) {
   state.lastFinish = null;
   $("chunk-file").textContent = state.chunk.chunk.id;
   $("chunk-title").textContent = state.chunk.chunk.title;
+  const chunkMeta = state.chunks.find((c) => c.id === chunkId);
+  if (chunkMeta?.read) {
+    $("mark-read").textContent = "✓ Marked";
+    $("mark-read").classList.add("marked");
+  } else {
+    $("mark-read").textContent = "Mark read";
+    $("mark-read").classList.remove("marked");
+  }
   $("mark-read").disabled = false;
   $("continue-reading").disabled = false;
   document.body.classList.add("has-chunk");
@@ -777,6 +793,8 @@ $("mark-read").addEventListener("click", async () => {
     body: { bookId: state.bookId, chunkId: state.chunkId },
   });
   state.lastFinish = result.finish || null;
+  $("mark-read").textContent = "✓ Marked";
+  $("mark-read").classList.add("marked");
   await refreshCurrent({ force: true });
   refreshCards({ finish: state.lastFinish, show: Boolean(state.lastFinish) });
   if (!state.lastFinish && state.cardCandidates.some((card) => card.source === "shared")) {

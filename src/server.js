@@ -17,6 +17,8 @@ import {
   listBooks,
   listChunks,
   listSubmissions,
+  loadManifest,
+  loadProgress,
   markRead,
   readCard,
   readChunk,
@@ -300,14 +302,14 @@ export const tools = [
   },
   {
     name: "reading_mark_read",
-    description: "Mark a chunk as read and update last-read progress.",
+    description: "Mark a chunk as read by AI (Erik). This does NOT advance the human reading progress — only the human reader UI can do that. The human's progress is the lock that determines how far co-reading has reached.",
     inputSchema: {
       type: "object",
       required: ["bookId", "chunkId"],
       properties: { bookId: { type: "string" }, chunkId: { type: "string" } },
       additionalProperties: false,
     },
-    annotations: { title: "Mark Read" },
+    annotations: { title: "Mark Read (AI)" },
   },
   {
     name: "reading_card_inbox",
@@ -450,6 +452,22 @@ function imageContent({ text, image }) {
   };
 }
 
+async function assertJeoiHasRead(bookId, chunkId) {
+  const progress = await loadProgress();
+  const entry = progress[bookId] || {};
+  const jeoiRead = new Set(Array.isArray(entry.readChunkIds) ? entry.readChunkIds : []);
+  if (!jeoiRead.has(chunkId)) {
+    const manifest = await loadManifest(bookId);
+    const chunk = manifest.chunks.find((c) => c.id === chunkId);
+    const label = chunk?.title || chunkId;
+    throw new Error(
+      `🔒 Locked: "${label}" — Jeoi hasn't read this yet. ` +
+      `Co-reading progress follows Jeoi's pace. ` +
+      `Wait for Jeoi to mark this chunk as read in the reader UI.`
+    );
+  }
+}
+
 export async function callTool(name, args = {}) {
   switch (name) {
     case "reading_list_books":
@@ -457,11 +475,20 @@ export async function callTool(name, args = {}) {
     case "reading_list_chunks":
       return textContent(await listChunks(args.bookId));
     case "reading_read_chunk":
+      await assertJeoiHasRead(args.bookId, args.chunkId);
       return textContent(await readChunk(args.bookId, args.chunkId));
     case "reading_continue":
       return textContent(await continueReading(args));
-    case "reading_search_chunks":
-      return textContent(await searchChunks(args));
+    case "reading_search_chunks": {
+      const raw = await searchChunks(args);
+      const progressData = await loadProgress();
+      const filtered = raw.filter((hit) => {
+        const entry = progressData[hit.bookId] || {};
+        const jeoiRead = new Set(Array.isArray(entry.readChunkIds) ? entry.readChunkIds : []);
+        return jeoiRead.has(hit.chunkId);
+      });
+      return textContent(filtered);
+    }
     case "reading_import_book":
       return textContent(await importBook(args));
     case "reading_import_begin":
@@ -476,6 +503,7 @@ export async function callTool(name, args = {}) {
       if (args.confirm !== true) throw new Error("reading_delete_book requires confirm: true");
       return textContent(await deleteBook(args.bookId));
     case "reading_annotate_passage":
+      await assertJeoiHasRead(args.bookId, args.chunkId);
       return textContent(await annotatePassage({ ...args, author: "claude", status: "published" }));
     case "reading_list_annotations":
       return textContent(await listAnnotations(args));
@@ -488,7 +516,8 @@ export async function callTool(name, args = {}) {
     case "reading_reply_to_annotation":
       return textContent(await replyToAnnotation({ ...args, author: "claude", status: "published" }));
     case "reading_mark_read":
-      return textContent(await markRead(args.bookId, args.chunkId));
+      await assertJeoiHasRead(args.bookId, args.chunkId);
+      return textContent(await markRead(args.bookId, args.chunkId, { reader: "erik" }));
     case "reading_card_inbox":
       return textContent(await listCardInbox(args));
     case "reading_card_collection":
@@ -534,6 +563,10 @@ export async function handle(message) {
         `Use this server as a shared co-reading surface. ` +
         `Claude can import EPUB/TXT uploads, continue reading, read chunked books, search passages, track progress, leave margin annotations, ` +
         `reply under user notes, and call reading_submit_user_notes when the human sends staged notes. ` +
+        `IMPORTANT — Reading lock: Jeoi's reading progress is the lock. Erik can only read chunks Jeoi has already marked as read in the reader UI. ` +
+        `reading_read_chunk and reading_mark_read will reject requests for locked (unread-by-Jeoi) chunks. ` +
+        `reading_mark_read records Erik's progress separately and does NOT advance Jeoi's reading position. ` +
+        `Use reading_get_progress to see both Jeoi's and Erik's progress. Do not attempt to bypass the lock by reading source files directly. ` +
         `Reading actions may return cardNotification when a bookmark card is waiting; open it with reading_open_card, save it to a local file with reading_save_card, or clear it with reading_dismiss_card. Use reading_card_collection to browse cards by pages without loading every image. ` +
         `Use reading_import_book for small uploads, or reading_import_begin/part/finish for large files. ` +
         `If this server is running through src/server-sse.js, the same process can also serve the human reader at /, REST API at /api/*, SSE MCP at /sse, and JSON-RPC POST at /mcp. ` +

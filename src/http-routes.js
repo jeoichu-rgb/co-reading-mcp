@@ -214,7 +214,7 @@ export async function handleApi(req, res, url, options = {}) {
 
   if (req.method === "POST" && parts.length === 2 && parts[1] === "mark-read") {
     const body = await readBody(req, { maxBytes });
-    return sendJson(res, 200, await markRead(body.bookId, body.chunkId));
+    return sendJson(res, 200, await markRead(body.bookId, body.chunkId, { reader: "jeoi" }));
   }
 
   if (req.method === "POST" && parts.length === 2 && parts[1] === "import") {

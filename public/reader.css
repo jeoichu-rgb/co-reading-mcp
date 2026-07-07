@@ -986,3 +986,35 @@ button:disabled {
     background: rgba(255, 255, 255, 0.07);
   }
 }
+
+/* ── Read badges ── */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  vertical-align: middle;
+  line-height: 1.4;
+  font-weight: 600;
+}
+
+.badge-human {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.badge-ai {
+  background: var(--blue-soft);
+  color: #5a7ea8;
+}
+
+.badge-unread {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+/* Mark-read checkmark state */
+.secondary-button.marked {
+  color: var(--accent);
+  border-color: var(--accent);
+}
