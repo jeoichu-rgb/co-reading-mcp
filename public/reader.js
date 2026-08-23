@@ -339,7 +339,7 @@ function renderAnnotations() {
     .join("");
 
   $("submit-notes").disabled = openCount === 0;
-  $("submit-notes").textContent = openCount ? `Send ${openCount} to Claude` : "Send to Erik";
+  $("submit-notes").textContent = openCount ? `Send ${openCount} to Erik` : "Send to Erik";
   $("status").textContent = openCount
     ? `${openCount} private note${openCount === 1 ? "" : "s"} waiting.`
     : "Private notes stay local until you send them.";
@@ -788,6 +788,7 @@ $("send-note").addEventListener("click", async () => {
   btn.disabled = true;
 
   // 1. Save annotation immediately (survives network failure)
+  // Status "published" — already sent live, skip batch submit count
   const savedAnnotation = await api("/api/annotations", {
     method: "POST",
     body: {
@@ -798,6 +799,7 @@ $("send-note").addEventListener("click", async () => {
       note,
       kind: "note",
       color: state.noteColor,
+      status: "published",
     },
   });
 
