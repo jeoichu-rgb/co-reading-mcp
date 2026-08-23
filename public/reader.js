@@ -24,6 +24,7 @@ const state = {
   coreadPollTimer: null,
   coreadMessages: [],     // {role, text} for the chat panel
   coreadQuote: "",        // original highlighted quote
+  coreadRootId: null,     // annotation id for incremental reply saving
   coreadLocked: false,    // true after conversation ends (no re-trigger)
 };
 
@@ -745,9 +746,11 @@ $("note-form").addEventListener("submit", async (event) => {
 
   const submitBtn = event.target.querySelector('[type="submit"]');
   const origText = submitBtn.textContent;
+  submitBtn.textContent = "Sending…";
+  submitBtn.disabled = true;
 
-  // 1. Save annotation locally (keeps existing flow)
-  await api("/api/annotations", {
+  // 1. Save annotation immediately (survives network failure)
+  const savedAnnotation = await api("/api/annotations", {
     method: "POST",
     body: {
       bookId: state.bookId,
@@ -760,9 +763,20 @@ $("note-form").addEventListener("submit", async (event) => {
     },
   });
 
-  // 2. Send to Erik via gateway + open chat panel
-  submitBtn.textContent = "Sending…";
-  submitBtn.disabled = true;
+  // Remember root id for incremental reply saving
+  state.coreadRootId = savedAnnotation.id;
+  state.coreadQuote = state.quote;
+  state.coreadMessages = [{ role: "user", text: note }];
+  state.coreadLocked = false;
+
+  // Hide form + refresh to show the highlight immediately
+  $("note-form").hidden = true;
+  window.getSelection()?.removeAllRanges();
+  updateSelectionAction();
+  await refreshCurrent({ force: true });
+
+  // 2. Try sending to Erik via gateway
+  let gatewayOk = false;
   try {
     const gwResp = await fetch(`${GATEWAY_URL}/api/coread-msg`, {
       method: "POST",
@@ -779,26 +793,21 @@ $("note-form").addEventListener("submit", async (event) => {
     if (gwResp.ok) {
       const { coreadId } = await gwResp.json();
       state.activeCoreadId = coreadId;
-      state.coreadQuote = state.quote;
-      state.coreadMessages = [{ role: "user", text: note }];
-      state.coreadLocked = false;
+      gatewayOk = true;
       openCoreadChat();
       addCoreadPending();
       pollCoreadReply(coreadId);
-    } else {
-      showToast("Could not reach Erik");
     }
   } catch (err) {
     console.warn("coread-msg failed:", err);
-    showToast("Could not reach Erik");
+  }
+
+  if (!gatewayOk) {
+    showToast("Note saved · Erik is offline");
   }
 
   submitBtn.textContent = origText;
   submitBtn.disabled = false;
-  $("note-form").hidden = true;
-  window.getSelection()?.removeAllRanges();
-  updateSelectionAction();
-  await refreshCurrent({ force: true });
 });
 
 $("note-selection").addEventListener("click", () => {
@@ -1039,11 +1048,12 @@ function closeCoreadChat() {
     state.activeCoreadId = null;
   }
 
-  // Save conversation as annotation reply chain, then hide
-  saveCoreadAsAnnotation().then(() => {
-    $("coread-chat").hidden = true;
-    showToast("Conversation saved as annotation");
-  });
+  // All replies already saved incrementally — just clean up & hide
+  state.coreadMessages = [];
+  state.coreadQuote = "";
+  state.coreadRootId = null;
+  $("coread-chat").hidden = true;
+  refreshCurrent({ force: true });
 }
 
 function isCoreadActive() {
@@ -1082,8 +1092,9 @@ async function pollCoreadReply(coreadId) {
       if (data.text) {
         state.coreadMessages.push({ role: "assistant", text: data.text });
         renderCoreadMessages();
+        // Incrementally save Erik's reply as annotation reply
+        await saveReplyIncremental(data.text, "claude", "annotation");
       }
-      await refreshCurrent({ force: true });
       return;
     }
     state.coreadPollTimer = setTimeout(() => pollCoreadReply(coreadId), 1500);
@@ -1095,7 +1106,13 @@ async function pollCoreadReply(coreadId) {
 
 async function sendCoreadFollowUp(text) {
   if (!text.trim() || state.coreadLocked) return;
-  state.coreadMessages.push({ role: "user", text: text.trim() });
+  const trimmed = text.trim();
+  state.coreadMessages.push({ role: "user", text: trimmed });
+  renderCoreadMessages();
+
+  // Incrementally save user follow-up as annotation reply
+  await saveReplyIncremental(trimmed, "user", "reply");
+
   addCoreadPending();
   try {
     const gwResp = await fetch(`${GATEWAY_URL}/api/coread-msg`, {
@@ -1106,7 +1123,7 @@ async function sendCoreadFollowUp(text) {
         chunkId: state.chunkId,
         quote: state.coreadQuote,
         quoteOffset: null,
-        note: text.trim(),
+        note: trimmed,
         color: state.noteColor,
       }),
     });
@@ -1116,50 +1133,32 @@ async function sendCoreadFollowUp(text) {
       pollCoreadReply(coreadId);
     } else {
       removeCoreadPending();
-      showToast("Could not reach Erik");
+      showToast("Message saved · Erik is offline");
     }
   } catch (err) {
     removeCoreadPending();
-    showToast("Could not reach Erik");
+    showToast("Message saved · Erik is offline");
   }
 }
 
-async function saveCoreadAsAnnotation() {
-  // Build the full conversation as annotation replies
-  // The first user message is already saved as the root annotation.
-  // Erik's replies + any follow-up messages go as reply chain.
-  const erikReplies = state.coreadMessages.filter((m) => m.role === "assistant" && !m.pending);
-  if (!erikReplies.length) return;
-
-  // Find the root annotation (last open annotation matching the quote)
-  const matching = state.annotations.filter(
-    (a) => a.chunkId === state.chunkId && a.quote === state.coreadQuote && a.author === "user"
-  );
-  const root = matching[matching.length - 1];
-  if (!root) return;
-
-  // Save Erik's reply and any follow-up user messages as replies
-  const conversation = state.coreadMessages.slice(1); // skip first user msg (already the root)
-  for (const msg of conversation) {
-    if (msg.pending) continue;
-    try {
-      await api("/api/replies", {
-        method: "POST",
-        body: {
-          parentId: root.id,
-          note: msg.text,
-          author: msg.role === "user" ? "user" : "claude",
-          kind: msg.role === "user" ? "reply" : "annotation",
-        },
-      });
-    } catch (err) {
-      console.warn("Failed to save coread reply:", err);
-    }
+// Save a single message as annotation reply (called per-message, not on close)
+async function saveReplyIncremental(text, author, kind) {
+  if (!state.coreadRootId || !text) return;
+  try {
+    await api("/api/replies", {
+      method: "POST",
+      body: {
+        parentId: state.coreadRootId,
+        note: text,
+        author,
+        kind,
+      },
+    });
+    // Refresh margin notes to show the new reply
+    await refreshCurrent({ force: true });
+  } catch (err) {
+    console.warn("Failed to save incremental reply:", err);
   }
-
-  state.coreadMessages = [];
-  state.coreadQuote = "";
-  await refreshCurrent({ force: true });
 }
 
 function showError(error) {
