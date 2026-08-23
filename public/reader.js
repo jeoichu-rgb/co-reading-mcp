@@ -489,7 +489,8 @@ function updateSelectionAction() {
   const details = selectionDetails(selection);
   state.selectedQuote = details?.quote || "";
   state.selectedQuoteOffset = details?.quoteOffset ?? null;
-  $("note-selection").disabled = !state.selectedQuote || !state.bookId || !state.chunkId;
+  // ④ Disable note button while coread chat is active
+  $("note-selection").disabled = !state.selectedQuote || !state.bookId || !state.chunkId || isCoreadActive();
 }
 
 function elementForNode(node) {
@@ -578,6 +579,7 @@ async function selectBook(bookId) {
 }
 
 function clearBookSelection() {
+  if (!$("coread-chat").hidden) closeCoreadChat();
   state.bookId = null;
   state.chunkId = null;
   state.chunk = null;
@@ -615,6 +617,8 @@ async function deleteBookFromShelf(bookId) {
 }
 
 async function selectChunk(chunkId) {
+  // ③④ Close any active coread chat before switching chapters
+  if (!$("coread-chat").hidden) closeCoreadChat();
   state.chunkId = chunkId;
   state.activeAnnotationId = null;
   state.chunk = await api(`/api/books/${encodeURIComponent(state.bookId)}/chunks/${encodeURIComponent(chunkId)}`);
@@ -641,9 +645,13 @@ async function selectChunk(chunkId) {
 }
 
 function openNoteForm(quote) {
+  // ④ Don't open note form while coread chat is active
+  if (isCoreadActive()) return;
   state.quote = quote.trim();
   state.quoteOffset = state.selectedQuote === state.quote ? state.selectedQuoteOffset : null;
   if (!state.bookId || !state.chunkId || !state.quote) return;
+  // ④ New highlight → reset lock so a fresh conversation can start
+  state.coreadLocked = false;
   $("quote-preview").textContent = state.quote;
   $("note").value = "";
   $("note-form").hidden = false;
@@ -939,6 +947,15 @@ $("coread-input").addEventListener("submit", (event) => {
   sendCoreadFollowUp(text);
 });
 
+// ③ Click outside coread chat → close & save
+document.addEventListener("click", (event) => {
+  if ($("coread-chat").hidden) return;
+  const chatEl = $("coread-chat");
+  if (!chatEl.contains(event.target) && !event.target.closest(".note-form")) {
+    closeCoreadChat();
+  }
+});
+
 $("export-book").addEventListener("click", (e) => {
   if (!state.bookId) return;
   const existing = document.querySelector(".export-menu");
@@ -998,14 +1015,19 @@ $("import-file").addEventListener("change", async (event) => {
 
 function openCoreadChat() {
   $("coread-chat").hidden = false;
+  $("coread-input").hidden = false;
+  $("coread-text").disabled = false;
   renderCoreadMessages();
   $("coread-text").focus();
 }
 
 function closeCoreadChat() {
-  $("coread-chat").hidden = true;
-  clearTimeout(state.coreadPollTimer);
+  if ($("coread-chat").hidden) return; // already closed
+
+  // Lock input immediately so no new messages can be sent
   state.coreadLocked = true;
+  $("coread-text").disabled = true;
+  clearTimeout(state.coreadPollTimer);
 
   // Clean up gateway slot
   if (state.activeCoreadId) {
@@ -1017,8 +1039,15 @@ function closeCoreadChat() {
     state.activeCoreadId = null;
   }
 
-  // Save conversation as annotation reply chain
-  saveCoreadAsAnnotation();
+  // Save conversation as annotation reply chain, then hide
+  saveCoreadAsAnnotation().then(() => {
+    $("coread-chat").hidden = true;
+    showToast("Conversation saved as annotation");
+  });
+}
+
+function isCoreadActive() {
+  return !$("coread-chat").hidden && !state.coreadLocked;
 }
 
 function renderCoreadMessages() {
