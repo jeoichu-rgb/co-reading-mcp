@@ -671,10 +671,14 @@ function closeNoteForm() {
 }
 
 function activateAnnotation(noteId, { scroll = false } = {}) {
-  state.activeAnnotationId = noteId;
+  if (noteId === state.activeAnnotationId) {
+    state.activeAnnotationId = null;
+  } else {
+    state.activeAnnotationId = noteId;
+  }
   renderText();
   renderAnnotations();
-  if (scroll) {
+  if (scroll && state.activeAnnotationId) {
     document.querySelector(`.inline-note[data-note-id="${CSS.escape(noteId)}"], .note-card[data-note-id="${CSS.escape(noteId)}"]`)?.scrollIntoView({
       block: "nearest",
       behavior: "smooth",
@@ -1114,6 +1118,9 @@ async function sendCoreadFollowUp(text) {
 
   addCoreadPending();
   try {
+    const history = state.coreadMessages
+      .filter((m) => !m.pending && m.text !== trimmed)
+      .map((m) => ({ role: m.role, text: m.text }));
     const gwResp = await fetch(`${GATEWAY_URL}/api/coread-msg`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -1124,6 +1131,8 @@ async function sendCoreadFollowUp(text) {
         quoteOffset: null,
         note: trimmed,
         color: state.noteColor,
+        isFollowUp: true,
+        history,
       }),
     });
     if (gwResp.ok) {
