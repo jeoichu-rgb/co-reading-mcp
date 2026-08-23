@@ -147,8 +147,8 @@ function showToast(message) {
 
 function formatIdentity(author) {
   const value = String(author || "unknown").toLowerCase();
-  if (value === "user" || value === "koshi") return "you";
-  if (value === "claude") return "Claude";
+  if (value === "user" || value === "koshi") return "Jeoi";
+  if (value === "claude") return "Erik";
   return value;
 }
 
@@ -752,6 +752,31 @@ document.addEventListener("selectionchange", updateSelectionAction);
 
 $("cancel-note").addEventListener("click", () => {
   closeNoteForm();
+});
+
+$("save-note").addEventListener("click", async () => {
+  const note = $("note").value.trim();
+  if (!note) return;
+  const btn = $("save-note");
+  btn.textContent = "Saving…";
+  btn.disabled = true;
+  await api("/api/annotations", {
+    method: "POST",
+    body: {
+      bookId: state.bookId,
+      chunkId: state.chunkId,
+      quote: state.quote,
+      quoteOffset: state.quoteOffset,
+      note,
+      kind: "note",
+      color: state.noteColor,
+    },
+  });
+  btn.textContent = "Save";
+  btn.disabled = false;
+  closeNoteForm();
+  await refreshCurrent({ force: true });
+  showToast("Note saved");
 });
 
 $("send-note").addEventListener("click", async () => {
