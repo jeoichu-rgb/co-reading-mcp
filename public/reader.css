@@ -1018,3 +1018,111 @@ button:disabled {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* ── Coread chat panel ── */
+.coread-chat {
+  position: fixed;
+  z-index: 14;
+  bottom: 92px;
+  right: 28px;
+  width: min(440px, calc(100vw - 56px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 24px 80px rgba(36, 31, 24, 0.16);
+  backdrop-filter: blur(24px);
+  overflow: hidden;
+}
+
+.coread-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.coread-chat-head h3 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.coread-messages {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+  max-height: 40vh;
+}
+
+.coread-msg {
+  max-width: 85%;
+  padding: 10px 14px;
+  border-radius: 16px;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.coread-msg.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: white;
+  border-bottom-right-radius: 6px;
+}
+
+.coread-msg.assistant {
+  align-self: flex-start;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text);
+  border-bottom-left-radius: 6px;
+}
+
+.coread-msg.pending {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.coread-input-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+}
+
+.coread-input-form textarea {
+  border-radius: 14px;
+  padding: 10px 12px;
+  min-height: 40px;
+}
+
+@media (max-width: 980px) {
+  .coread-chat {
+    left: 16px;
+    right: 16px;
+    bottom: 82px;
+    width: auto;
+    max-height: 55vh;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .coread-chat {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(28, 27, 26, 0.82);
+  }
+
+  .coread-msg.assistant {
+    background: rgba(255, 255, 255, 0.1);
+  }
+}

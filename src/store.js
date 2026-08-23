@@ -1241,12 +1241,19 @@ export async function annotatePassage(input) {
 
     const chunk = await readChunk(bookId, chunkId);
     const requestedQuoteOffset = Number(input.quoteOffset);
-    const quoteOffset =
+    let quoteOffset =
       Number.isInteger(requestedQuoteOffset) &&
       requestedQuoteOffset >= 0 &&
       chunk.text.slice(requestedQuoteOffset, requestedQuoteOffset + quote.length) === quote
         ? requestedQuoteOffset
         : chunk.text.indexOf(quote);
+    if (quoteOffset < 0) {
+      const pattern = quote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+      try {
+        const m = new RegExp(pattern).exec(chunk.text);
+        if (m) quoteOffset = m.index;
+      } catch {}
+    }
     const author = input.author || "claude";
     const parentId = input.parentId || null;
     const existingAnnotations = await readAllAnnotations();

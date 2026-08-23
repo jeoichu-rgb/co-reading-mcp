@@ -383,9 +383,14 @@ export async function serveStatic(req, res, url) {
 
   try {
     const body = await readFile(resolved);
-    res.writeHead(200, {
-      "content-type": contentTypes[path.extname(resolved)] || "application/octet-stream",
-    });
+    const ext = path.extname(resolved);
+    const headers = {
+      "content-type": contentTypes[ext] || "application/octet-stream",
+    };
+    if (ext === ".html") {
+      headers["cache-control"] = "no-cache";
+    }
+    res.writeHead(200, headers);
     res.end(body);
   } catch (error) {
     if (error.code === "ENOENT") return sendError(res, 404, "Not found");

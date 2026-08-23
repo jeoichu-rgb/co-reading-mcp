@@ -20,11 +20,17 @@ const state = {
   composing: false,
   replyDrafts: {},
   noteColor: "yellow",
+  activeCoreadId: null,
+  coreadPollTimer: null,
+  coreadMessages: [],     // {role, text} for the chat panel
+  coreadQuote: "",        // original highlighted quote
+  coreadLocked: false,    // true after conversation ends (no re-trigger)
 };
 
 const $ = (id) => document.getElementById(id);
 const authTokenKey = "co-reading-auth-token";
 const fontSizeKey = "co-reading-font-size";
+const GATEWAY_URL = "https://chat.erikssheep.uk";
 const defaultFontSize = 24;
 const minFontSize = 14;
 const maxFontSize = 40;
@@ -55,6 +61,19 @@ async function api(path, options = {}) {
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || response.statusText);
   return data;
+}
+
+function escapeRegExpChars(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function fuzzyFindQuote(text, quote) {
+  const pattern = escapeRegExpChars(quote).replace(/\s+/g, "\\s+");
+  try {
+    const m = new RegExp(pattern).exec(text);
+    if (m) return { start: m.index, length: m[0].length };
+  } catch {}
+  return null;
 }
 
 function escapeHtml(value) {
@@ -245,12 +264,22 @@ function renderText() {
   for (const note of rootNotes) {
     const quote = String(note.quote || "");
     const requestedOffset = Number(note.quoteOffset);
-    const start =
-      Number.isInteger(requestedOffset) && requestedOffset >= 0 && text.slice(requestedOffset, requestedOffset + quote.length) === quote
-        ? requestedOffset
-        : text.indexOf(quote);
+    let start = -1;
+    let matchLength = quote.length;
+    if (Number.isInteger(requestedOffset) && requestedOffset >= 0 && text.slice(requestedOffset, requestedOffset + quote.length) === quote) {
+      start = requestedOffset;
+    } else {
+      start = text.indexOf(quote);
+    }
+    if (start < 0) {
+      const fuzzy = fuzzyFindQuote(text, quote);
+      if (fuzzy) {
+        start = fuzzy.start;
+        matchLength = fuzzy.length;
+      }
+    }
     if (!quote || start < 0) continue;
-    const end = start + quote.length;
+    const end = start + matchLength;
     if (occupied.some((range) => start < range.end && end > range.start)) continue;
     occupied.push({ start, end });
     highlights.push({ start, end, note, shared: sharedIds.has(note.id), color: note.color || "yellow" });
@@ -309,7 +338,7 @@ function renderAnnotations() {
     .join("");
 
   $("submit-notes").disabled = openCount === 0;
-  $("submit-notes").textContent = openCount ? `Send ${openCount} to Claude` : "Send to Claude";
+  $("submit-notes").textContent = openCount ? `Send ${openCount} to Claude` : "Send to Erik";
   $("status").textContent = openCount
     ? `${openCount} private note${openCount === 1 ? "" : "s"} waiting.`
     : "Private notes stay local until you send them.";
@@ -534,7 +563,7 @@ async function selectBook(bookId) {
   $("book-title").textContent = book?.title || bookId;
   $("chunk-file").textContent = "No chapter selected";
   $("chunk-title").textContent = "Open a chapter to start reading";
-  $("text").innerHTML = `<p class="empty">Choose a chapter. Highlight text to leave a note for Claude.</p>`;
+  $("text").innerHTML = `<p class="empty">Choose a chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = false;
   $("export-book").disabled = false;
@@ -561,7 +590,7 @@ function clearBookSelection() {
   $("book-title").textContent = "Reading shelf";
   $("chunk-file").textContent = "No chapter selected";
   $("chunk-title").textContent = "Open a chapter to start reading";
-  $("text").innerHTML = `<p class="empty">Select a book and chapter. Highlight text to leave a note for Claude.</p>`;
+  $("text").innerHTML = `<p class="empty">Select a book and chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = true;
   $("show-card").disabled = true;
@@ -705,6 +734,11 @@ $("note-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const note = $("note").value.trim();
   if (!note) return;
+
+  const submitBtn = event.target.querySelector('[type="submit"]');
+  const origText = submitBtn.textContent;
+
+  // 1. Save annotation locally (keeps existing flow)
   await api("/api/annotations", {
     method: "POST",
     body: {
@@ -717,6 +751,42 @@ $("note-form").addEventListener("submit", async (event) => {
       color: state.noteColor,
     },
   });
+
+  // 2. Send to Erik via gateway + open chat panel
+  submitBtn.textContent = "Sending…";
+  submitBtn.disabled = true;
+  try {
+    const gwResp = await fetch(`${GATEWAY_URL}/api/coread-msg`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        bookId: state.bookId,
+        chunkId: state.chunkId,
+        quote: state.quote,
+        quoteOffset: state.quoteOffset,
+        note,
+        color: state.noteColor,
+      }),
+    });
+    if (gwResp.ok) {
+      const { coreadId } = await gwResp.json();
+      state.activeCoreadId = coreadId;
+      state.coreadQuote = state.quote;
+      state.coreadMessages = [{ role: "user", text: note }];
+      state.coreadLocked = false;
+      openCoreadChat();
+      addCoreadPending();
+      pollCoreadReply(coreadId);
+    } else {
+      showToast("Could not reach Erik");
+    }
+  } catch (err) {
+    console.warn("coread-msg failed:", err);
+    showToast("Could not reach Erik");
+  }
+
+  submitBtn.textContent = origText;
+  submitBtn.disabled = false;
   $("note-form").hidden = true;
   window.getSelection()?.removeAllRanges();
   updateSelectionAction();
@@ -783,7 +853,7 @@ $("submit-notes").addEventListener("click", async () => {
   });
   await refreshCurrent({ force: true });
   $("status").textContent = result.submissionId
-    ? `Shared ${result.count} note${result.count === 1 ? "" : "s"} with Claude. Submission ${result.submissionId}.`
+    ? `Shared ${result.count} note${result.count === 1 ? "" : "s"} with Erik. Submission ${result.submissionId}.`
     : result.message || "No private notes to share.";
 });
 
@@ -858,6 +928,17 @@ document.querySelector(".color-picker").addEventListener("click", (e) => {
 $("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));
 $("font-larger").addEventListener("click", () => applyFontSize(loadFontSize() + 2));
 
+// ── Coread chat events ──
+$("coread-chat-close").addEventListener("click", closeCoreadChat);
+
+$("coread-input").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const text = $("coread-text").value;
+  if (!text.trim()) return;
+  $("coread-text").value = "";
+  sendCoreadFollowUp(text);
+});
+
 $("export-book").addEventListener("click", (e) => {
   if (!state.bookId) return;
   const existing = document.querySelector(".export-menu");
@@ -912,6 +993,145 @@ $("import-file").addEventListener("change", async (event) => {
     event.target.value = "";
   }
 });
+
+// ── Coread chat panel ──
+
+function openCoreadChat() {
+  $("coread-chat").hidden = false;
+  renderCoreadMessages();
+  $("coread-text").focus();
+}
+
+function closeCoreadChat() {
+  $("coread-chat").hidden = true;
+  clearTimeout(state.coreadPollTimer);
+  state.coreadLocked = true;
+
+  // Clean up gateway slot
+  if (state.activeCoreadId) {
+    fetch(`${GATEWAY_URL}/api/coread-close`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ coreadId: state.activeCoreadId }),
+    }).catch(() => {});
+    state.activeCoreadId = null;
+  }
+
+  // Save conversation as annotation reply chain
+  saveCoreadAsAnnotation();
+}
+
+function renderCoreadMessages() {
+  const el = $("coread-messages");
+  el.innerHTML = state.coreadMessages
+    .map((msg) => {
+      const cls = msg.role === "user" ? "user" : msg.pending ? "assistant pending" : "assistant";
+      return `<div class="coread-msg ${cls}">${escapeHtml(msg.text)}</div>`;
+    })
+    .join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function addCoreadPending() {
+  state.coreadMessages.push({ role: "assistant", text: "…", pending: true });
+  renderCoreadMessages();
+}
+
+function removeCoreadPending() {
+  state.coreadMessages = state.coreadMessages.filter((m) => !m.pending);
+}
+
+async function pollCoreadReply(coreadId) {
+  clearTimeout(state.coreadPollTimer);
+  if (state.coreadLocked) return;
+  try {
+    const resp = await fetch(`${GATEWAY_URL}/api/coread-poll?id=${coreadId}`);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.status === "done") {
+      removeCoreadPending();
+      if (data.text) {
+        state.coreadMessages.push({ role: "assistant", text: data.text });
+        renderCoreadMessages();
+      }
+      await refreshCurrent({ force: true });
+      return;
+    }
+    state.coreadPollTimer = setTimeout(() => pollCoreadReply(coreadId), 1500);
+  } catch (err) {
+    console.warn("coread-poll error:", err);
+    state.coreadPollTimer = setTimeout(() => pollCoreadReply(coreadId), 3000);
+  }
+}
+
+async function sendCoreadFollowUp(text) {
+  if (!text.trim() || state.coreadLocked) return;
+  state.coreadMessages.push({ role: "user", text: text.trim() });
+  addCoreadPending();
+  try {
+    const gwResp = await fetch(`${GATEWAY_URL}/api/coread-msg`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        bookId: state.bookId,
+        chunkId: state.chunkId,
+        quote: state.coreadQuote,
+        quoteOffset: null,
+        note: text.trim(),
+        color: state.noteColor,
+      }),
+    });
+    if (gwResp.ok) {
+      const { coreadId } = await gwResp.json();
+      state.activeCoreadId = coreadId;
+      pollCoreadReply(coreadId);
+    } else {
+      removeCoreadPending();
+      showToast("Could not reach Erik");
+    }
+  } catch (err) {
+    removeCoreadPending();
+    showToast("Could not reach Erik");
+  }
+}
+
+async function saveCoreadAsAnnotation() {
+  // Build the full conversation as annotation replies
+  // The first user message is already saved as the root annotation.
+  // Erik's replies + any follow-up messages go as reply chain.
+  const erikReplies = state.coreadMessages.filter((m) => m.role === "assistant" && !m.pending);
+  if (!erikReplies.length) return;
+
+  // Find the root annotation (last open annotation matching the quote)
+  const matching = state.annotations.filter(
+    (a) => a.chunkId === state.chunkId && a.quote === state.coreadQuote && a.author === "user"
+  );
+  const root = matching[matching.length - 1];
+  if (!root) return;
+
+  // Save Erik's reply and any follow-up user messages as replies
+  const conversation = state.coreadMessages.slice(1); // skip first user msg (already the root)
+  for (const msg of conversation) {
+    if (msg.pending) continue;
+    try {
+      await api("/api/replies", {
+        method: "POST",
+        body: {
+          parentId: root.id,
+          note: msg.text,
+          author: msg.role === "user" ? "user" : "claude",
+          kind: msg.role === "user" ? "reply" : "annotation",
+        },
+      });
+    } catch (err) {
+      console.warn("Failed to save coread reply:", err);
+    }
+  }
+
+  state.coreadMessages = [];
+  state.coreadQuote = "";
+  await refreshCurrent({ force: true });
+}
 
 function showError(error) {
   $("status").textContent = error.message || String(error);
