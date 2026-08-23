@@ -580,7 +580,7 @@ async function selectBook(bookId) {
 }
 
 function clearBookSelection() {
-  if (!$("coread-chat").hidden) closeCoreadChat();
+  if (isCoreadActive()) closeCoreadChat();
   state.bookId = null;
   state.chunkId = null;
   state.chunk = null;
@@ -619,7 +619,7 @@ async function deleteBookFromShelf(bookId) {
 
 async function selectChunk(chunkId) {
   // ③④ Close any active coread chat before switching chapters
-  if (!$("coread-chat").hidden) closeCoreadChat();
+  if (isCoreadActive()) closeCoreadChat();
   state.chunkId = chunkId;
   state.activeAnnotationId = null;
   state.chunk = await api(`/api/books/${encodeURIComponent(state.bookId)}/chunks/${encodeURIComponent(chunkId)}`);
@@ -655,8 +655,19 @@ function openNoteForm(quote) {
   state.coreadLocked = false;
   $("quote-preview").textContent = state.quote;
   $("note").value = "";
+  // Reset to compose mode
+  $("note-compose").hidden = false;
+  $("note-chat").hidden = true;
   $("note-form").hidden = false;
   $("note").focus();
+}
+
+function closeNoteForm() {
+  if (isCoreadActive()) {
+    closeCoreadChat();
+  } else {
+    $("note-form").hidden = true;
+  }
 }
 
 function activateAnnotation(noteId, { scroll = false } = {}) {
@@ -736,18 +747,16 @@ $("text").addEventListener("click", (event) => {
 document.addEventListener("selectionchange", updateSelectionAction);
 
 $("cancel-note").addEventListener("click", () => {
-  $("note-form").hidden = true;
+  closeNoteForm();
 });
 
-$("note-form").addEventListener("submit", async (event) => {
-  event.preventDefault();
+$("send-note").addEventListener("click", async () => {
   const note = $("note").value.trim();
   if (!note) return;
 
-  const submitBtn = event.target.querySelector('[type="submit"]');
-  const origText = submitBtn.textContent;
-  submitBtn.textContent = "Sending…";
-  submitBtn.disabled = true;
+  const btn = $("send-note");
+  btn.textContent = "Sending…";
+  btn.disabled = true;
 
   // 1. Save annotation immediately (survives network failure)
   const savedAnnotation = await api("/api/annotations", {
@@ -769,8 +778,10 @@ $("note-form").addEventListener("submit", async (event) => {
   state.coreadMessages = [{ role: "user", text: note }];
   state.coreadLocked = false;
 
-  // Hide form + refresh to show the highlight immediately
-  $("note-form").hidden = true;
+  // Switch note-form from compose → chat mode
+  $("note-compose").hidden = true;
+  $("note-chat").hidden = false;
+  renderCoreadMessages();
   window.getSelection()?.removeAllRanges();
   updateSelectionAction();
   await refreshCurrent({ force: true });
@@ -794,7 +805,6 @@ $("note-form").addEventListener("submit", async (event) => {
       const { coreadId } = await gwResp.json();
       state.activeCoreadId = coreadId;
       gatewayOk = true;
-      openCoreadChat();
       addCoreadPending();
       pollCoreadReply(coreadId);
     }
@@ -806,8 +816,8 @@ $("note-form").addEventListener("submit", async (event) => {
     showToast("Note saved · Erik is offline");
   }
 
-  submitBtn.textContent = origText;
-  submitBtn.disabled = false;
+  btn.textContent = "Send to Erik";
+  btn.disabled = false;
 });
 
 $("note-selection").addEventListener("click", () => {
@@ -945,9 +955,7 @@ document.querySelector(".color-picker").addEventListener("click", (e) => {
 $("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));
 $("font-larger").addEventListener("click", () => applyFontSize(loadFontSize() + 2));
 
-// ── Coread chat events ──
-$("coread-chat-close").addEventListener("click", closeCoreadChat);
-
+// ── Coread inline chat events ──
 $("coread-input").addEventListener("submit", (event) => {
   event.preventDefault();
   const text = $("coread-text").value;
@@ -956,11 +964,10 @@ $("coread-input").addEventListener("submit", (event) => {
   sendCoreadFollowUp(text);
 });
 
-// ③ Click outside coread chat → close & save
+// ③ Click outside note-form (while in chat mode) → close & save
 document.addEventListener("click", (event) => {
-  if ($("coread-chat").hidden) return;
-  const chatEl = $("coread-chat");
-  if (!chatEl.contains(event.target) && !event.target.closest(".note-form")) {
+  if (!isCoreadActive()) return;
+  if (!$("note-form").contains(event.target)) {
     closeCoreadChat();
   }
 });
@@ -1022,18 +1029,8 @@ $("import-file").addEventListener("change", async (event) => {
 
 // ── Coread chat panel ──
 
-function openCoreadChat() {
-  $("coread-chat").hidden = false;
-  $("coread-input").hidden = false;
-  $("coread-text").disabled = false;
-  renderCoreadMessages();
-  $("coread-text").focus();
-}
-
 function closeCoreadChat() {
-  if ($("coread-chat").hidden) return; // already closed
-
-  // Lock input immediately so no new messages can be sent
+  // Lock input so no new messages can be sent
   state.coreadLocked = true;
   $("coread-text").disabled = true;
   clearTimeout(state.coreadPollTimer);
@@ -1052,12 +1049,14 @@ function closeCoreadChat() {
   state.coreadMessages = [];
   state.coreadQuote = "";
   state.coreadRootId = null;
-  $("coread-chat").hidden = true;
+  $("note-form").hidden = true;
+  $("note-compose").hidden = false;
+  $("note-chat").hidden = true;
   refreshCurrent({ force: true });
 }
 
 function isCoreadActive() {
-  return !$("coread-chat").hidden && !state.coreadLocked;
+  return !$("note-chat").hidden && !state.coreadLocked;
 }
 
 function renderCoreadMessages() {

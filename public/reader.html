@@ -64,19 +64,28 @@
           <button id="bottom-next" class="secondary-button" disabled>Next ›</button>
         </nav>
 
-        <form id="note-form" class="note-form" hidden>
+        <div id="note-form" class="note-form" hidden>
           <div class="quote-preview" id="quote-preview"></div>
-          <div class="color-picker">
-            <button type="button" class="color-dot active" data-color="yellow" title="Lemon yellow"></button>
-            <button type="button" class="color-dot" data-color="blue" title="Smoke blue"></button>
-            <button type="button" class="color-dot" data-color="grey" title="Light grey"></button>
+          <div id="note-compose" class="note-compose">
+            <div class="color-picker">
+              <button type="button" class="color-dot active" data-color="yellow" title="Lemon yellow"></button>
+              <button type="button" class="color-dot" data-color="blue" title="Smoke blue"></button>
+              <button type="button" class="color-dot" data-color="grey" title="Light grey"></button>
+            </div>
+            <textarea id="note" rows="3" placeholder="Leave a note for Erik..."></textarea>
+            <div class="form-actions">
+              <button type="button" id="cancel-note" class="secondary-button">Cancel</button>
+              <button type="button" id="send-note" class="primary-button">Send to Erik</button>
+            </div>
           </div>
-          <textarea id="note" rows="3" placeholder="Leave a note for Erik..."></textarea>
-          <div class="form-actions">
-            <button type="button" id="cancel-note" class="secondary-button">Cancel</button>
-            <button type="submit" class="primary-button">Send to Erik</button>
+          <div id="note-chat" class="note-chat" hidden>
+            <div id="coread-messages" class="coread-messages"></div>
+            <form id="coread-input" class="coread-input-form">
+              <textarea id="coread-text" rows="2" placeholder="Reply..."></textarea>
+              <button type="submit" class="primary-button">Send</button>
+            </form>
           </div>
-        </form>
+        </div>
 
         <footer class="submitbar">
           <span id="status">Private notes stay local until you send them.</span>
@@ -87,21 +96,6 @@
         </footer>
 
         <div id="toast" class="toast" hidden></div>
-
-        <aside id="coread-chat" class="coread-chat" hidden aria-label="Chat with Erik">
-          <div class="coread-chat-head">
-            <div>
-              <p class="eyebrow">Co-reading</p>
-              <h3 id="coread-chat-title">Chat with Erik</h3>
-            </div>
-            <button id="coread-chat-close" class="icon-button" title="End conversation">×</button>
-          </div>
-          <div id="coread-messages" class="coread-messages"></div>
-          <form id="coread-input" class="coread-input-form">
-            <textarea id="coread-text" rows="2" placeholder="Continue the conversation..."></textarea>
-            <button type="submit" class="primary-button">Send</button>
-          </form>
-        </aside>
 
         <aside id="card-panel" class="card-panel" hidden aria-label="Reading card">
           <div class="card-panel-head">
