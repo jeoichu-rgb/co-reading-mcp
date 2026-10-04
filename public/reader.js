@@ -317,9 +317,6 @@ function bindMarkActions() {
 function renderAnnotations() {
   const notes = state.annotations.filter((item) => item.chunkId === state.chunkId);
   const roots = notes.filter((item) => !item.parentId);
-  const openCount = state.annotations.filter((item) => item.author === "user" && (item.status || "open") === "open")
-    .length;
-
   $("margins").innerHTML = roots
     .map((note) => {
       const replies = replyCount(note.id, notes);
@@ -338,12 +335,6 @@ function renderAnnotations() {
       </article>`;
     })
     .join("");
-
-  $("submit-notes").disabled = openCount === 0;
-  $("submit-notes").textContent = openCount ? `Send ${openCount} to Erik` : "Send to Erik";
-  $("status").textContent = openCount
-    ? `${openCount} private note${openCount === 1 ? "" : "s"} waiting.`
-    : "Private notes stay local until you send them.";
 }
 
 function currentBook() {
@@ -898,21 +889,6 @@ document.addEventListener("compositionstart", (event) => {
 document.addEventListener("compositionend", (event) => {
   if (!event.target.closest?.(".reply-form, .note-form")) return;
   state.composing = false;
-});
-
-$("submit-notes").addEventListener("click", async () => {
-  const result = await api("/api/submit-notes", {
-    method: "POST",
-    body: {
-      bookId: state.bookId,
-      sessionId: "reader",
-      contextMode: "chunk-once-per-session",
-    },
-  });
-  await refreshCurrent({ force: true });
-  $("status").textContent = result.submissionId
-    ? `Shared ${result.count} note${result.count === 1 ? "" : "s"} with Erik. Submission ${result.submissionId}.`
-    : result.message || "No private notes to share.";
 });
 
 $("mark-read").addEventListener("click", async () => {
