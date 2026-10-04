@@ -657,6 +657,7 @@ function openNoteForm(quote) {
   $("note-compose").hidden = false;
   $("note-chat").hidden = true;
   $("note-form").hidden = false;
+  $("submitbar").hidden = true;
   $("note").focus();
 }
 
@@ -665,6 +666,7 @@ function closeNoteForm() {
     closeCoreadChat();
   } else {
     $("note-form").hidden = true;
+    $("submitbar").hidden = false;
   }
 }
 
@@ -1077,6 +1079,7 @@ function closeCoreadChat() {
   state.coreadQuote = "";
   state.coreadRootId = null;
   $("note-form").hidden = true;
+  $("submitbar").hidden = false;
   $("note-compose").hidden = false;
   $("note-chat").hidden = true;
   refreshCurrent({ force: true });
