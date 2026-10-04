@@ -580,7 +580,6 @@ async function selectBook(bookId) {
   $("book-meta").textContent = book?.author || "Unknown author";
   $("book-title").textContent = book?.title || bookId;
   $("chunk-file").textContent = "No chapter selected";
-  $("chunk-title").textContent = "Open a chapter to start reading";
   $("text").innerHTML = `<p class="empty">Choose a chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = false;
@@ -608,7 +607,6 @@ function clearBookSelection() {
   $("book-meta").textContent = "Choose a book";
   $("book-title").textContent = "Reading shelf";
   $("chunk-file").textContent = "No chapter selected";
-  $("chunk-title").textContent = "Open a chapter to start reading";
   $("text").innerHTML = `<p class="empty">Select a book and chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = true;
@@ -641,7 +639,6 @@ async function selectChunk(chunkId) {
   state.chunk = await api(`/api/books/${encodeURIComponent(state.bookId)}/chunks/${encodeURIComponent(chunkId)}`);
   state.lastFinish = null;
   $("chunk-file").textContent = state.chunk.chunk.id;
-  $("chunk-title").textContent = state.chunk.chunk.title;
   const chunkMeta = state.chunks.find((c) => c.id === chunkId);
   if (chunkMeta?.read) {
     $("mark-read").textContent = "✓ Marked";
