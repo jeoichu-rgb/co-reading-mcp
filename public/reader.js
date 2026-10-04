@@ -152,6 +152,18 @@ function formatIdentity(author) {
   return value;
 }
 
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${hh}:${mm}  ${yyyy}/${MM}/${dd}`;
+}
+
 function replyClass(reply, root) {
   const sameAuthor = String(reply.author || "").toLowerCase() === String(root.author || "").toLowerCase();
   return sameAuthor ? "reply root-author" : "reply other-author";
@@ -175,7 +187,7 @@ function renderReply(reply, root, notes, depth = 1, seen = new Set()) {
   const visibleDepth = Math.min(depth, 4);
   return `<div class="${replyClass(reply, root)}" style="--reply-depth: ${visibleDepth}">
     <p class="reply-body">${escapeHtml(reply.note)}</p>
-    <div class="note-meta">${escapeHtml(formatIdentity(reply.author))} · ${escapeHtml(reply.kind || "reply")}</div>
+    <div class="note-meta"><span>${escapeHtml(formatIdentity(reply.author))} · ${escapeHtml(reply.kind || "reply")}</span>${reply.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(reply.createdAt))}</span>` : ""}</div>
     ${
       children.length
         ? `<div class="reply-children">${children
@@ -200,7 +212,7 @@ function renderThread(note, notes) {
 
 function renderInlineNote(note, notes) {
   return `<aside class="inline-note" data-note-id="${escapeHtml(note.id)}">
-    <p class="inline-note-kicker">${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")}</p>
+    <p class="inline-note-kicker"><span>${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")}</span>${note.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(note.createdAt))}</span>` : ""}</p>
     <p class="note-body">${escapeHtml(note.note)}</p>
     ${renderThread(note, notes)}
   </aside>`;
@@ -279,6 +291,10 @@ function renderText() {
         matchLength = fuzzy.length;
       }
     }
+    if (start < 0 && Number.isInteger(requestedOffset) && requestedOffset >= 0 && requestedOffset < text.length) {
+      start = requestedOffset;
+      matchLength = Math.min(quote.length, text.length - requestedOffset);
+    }
     if (!quote || start < 0) continue;
     const end = start + matchLength;
     if (occupied.some((range) => start < range.end && end > range.start)) continue;
@@ -328,7 +344,7 @@ function renderAnnotations() {
         ${isShared ? `<p class="shared-line">这里有两个人的折痕。</p>` : ""}
         <p class="note-quote">${escapeHtml(note.quote)}</p>
         <p class="note-body">${escapeHtml(note.note)}</p>
-        <div class="note-meta">${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")} · ${escapeHtml(note.status || "published")}${replies ? ` · ${replies} replies` : ""}</div>
+        <div class="note-meta"><span>${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")} · ${escapeHtml(note.status || "published")}${replies ? ` · ${replies} replies` : ""}</span>${note.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(note.createdAt))}</span>` : ""}</div>
         ${
           expanded
             ? renderThread(note, notes)

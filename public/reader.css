@@ -387,6 +387,10 @@ body:not(.has-book) .books {
 }
 
 .inline-note-kicker {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   margin: 0 0 8px;
   color: var(--muted);
   font-size: 12px;
@@ -410,9 +414,18 @@ body:not(.has-book) .books {
 }
 
 .note-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
   margin-top: 10px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.note-time {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .thread {

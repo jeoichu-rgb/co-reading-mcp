@@ -211,6 +211,7 @@ export const tools = [
         mood: { type: "string" },
         tags: { type: "array", items: { type: "string" } },
         parentId: { type: "string" },
+        color: { type: "string", enum: ["yellow", "blue", "grey"], description: "Highlight color for the annotation" },
       },
       additionalProperties: false,
     },

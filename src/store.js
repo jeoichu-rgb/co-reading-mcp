@@ -1258,7 +1258,8 @@ export async function listAnnotations({ bookId, chunkId, kind, author, status, p
 
 export async function annotatePassage(input) {
   return withWriteLock(async () => {
-    const { bookId, chunkId, quote, note } = input;
+    const { bookId, chunkId, note } = input;
+    let quote = input.quote;
     if (!bookId) throw new Error("bookId is required");
     if (!chunkId) throw new Error("chunkId is required");
     if (!quote) throw new Error("quote is required");
@@ -1276,7 +1277,10 @@ export async function annotatePassage(input) {
       const pattern = quote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
       try {
         const m = new RegExp(pattern).exec(chunk.text);
-        if (m) quoteOffset = m.index;
+        if (m) {
+          quoteOffset = m.index;
+          quote = m[0];
+        }
       } catch {}
     }
     const author = input.author || "claude";

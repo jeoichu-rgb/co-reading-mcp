@@ -53,6 +53,18 @@ export function sendError(res, status, message) {
   sendJson(res, status, { error: message });
 }
 
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${hh}:${mm}  ${yyyy}/${MM}/${dd}`;
+}
+
 export async function readBody(req, { maxBytes = defaultMaxBodyBytes, allowEmpty = true } = {}) {
   const contentType = req.headers["content-type"] || "";
   if (contentType && !contentType.includes("application/json")) {
@@ -327,10 +339,10 @@ export async function handleApi(req, res, url, options = {}) {
         for (const ann of roots) {
           body += `<div class="ann">`;
           if (ann.quote) body += `<blockquote>${esc(ann.quote)}</blockquote>`;
-          body += `<p class="note"><span class="author">${esc(ann.author)}</span> <span class="kind">${esc(ann.kind || "note")}</span> ${esc(ann.note)}</p>`;
+          body += `<p class="note"><span class="author">${esc(ann.author)}</span> <span class="kind">${esc(ann.kind || "note")}</span> ${esc(ann.note)}${ann.createdAt ? ` <span class="time">${esc(formatTimestamp(ann.createdAt))}</span>` : ""}</p>`;
           const replies = allAnnotations.filter((a) => a.parentId === ann.id).sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
           for (const reply of replies) {
-            body += `<p class="reply"><span class="author">${esc(reply.author)}</span> ${esc(reply.note)}</p>`;
+            body += `<p class="reply"><span class="author">${esc(reply.author)}</span> ${esc(reply.note)}${reply.createdAt ? ` <span class="time">${esc(formatTimestamp(reply.createdAt))}</span>` : ""}</p>`;
           }
           body += `</div>`;
         }
@@ -355,7 +367,7 @@ blockquote{margin:0 0 8px;padding:8px 12px;border-left:3px solid var(--accent);c
 .note{margin:0 0 4px;font-size:15px;line-height:1.55}
 .reply{margin:0 0 4px;padding-left:20px;font-size:14px;line-height:1.5;color:var(--text)}
 .reply::before{content:"↳ ";color:var(--muted)}
-.author{font-weight:700}.kind{color:var(--muted);font-size:13px}
+.author{font-weight:700}.kind{color:var(--muted);font-size:13px}.time{color:var(--muted);font-size:13px;float:right}
 .chapter{margin:0 0 16px}
 </style></head><body><div class="wrap">
 ${coverImg}<h1>${esc(bookTitle)}</h1>${bookAuthor ? `<p class="meta">${esc(bookAuthor)}</p>` : ""}
