@@ -761,6 +761,7 @@ $("save-note").addEventListener("click", async () => {
       note,
       kind: "note",
       color: state.noteColor,
+      status: "published",
     },
   });
   btn.textContent = "Save";
