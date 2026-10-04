@@ -30,11 +30,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const authTokenKey = "co-reading-auth-token";
-const fontSizeKey = "co-reading-font-size";
 const GATEWAY_URL = "https://chat.erikssheep.uk";
-const defaultFontSize = 24;
-const minFontSize = 14;
-const maxFontSize = 40;
 const COVER_GRADIENTS = [
   "linear-gradient(145deg, #e8e2d6, #d5cfc3)",
   "linear-gradient(145deg, #d6dfe8, #c3cdd5)",
@@ -114,17 +110,6 @@ function scrollToPanel(selector) {
   });
 }
 
-function loadFontSize() {
-  return Number(localStorage.getItem(fontSizeKey)) || defaultFontSize;
-}
-
-function applyFontSize(size) {
-  const clamped = Math.max(minFontSize, Math.min(maxFontSize, size));
-  localStorage.setItem(fontSizeKey, clamped);
-  $("text").style.setProperty("--reader-font-size", `${clamped}px`);
-}
-
-applyFontSize(loadFontSize());
 
 function updateChunkNav() {
   const hasPrev = !!state.chunk?.prevId;
@@ -996,8 +981,6 @@ document.querySelector(".color-picker").addEventListener("click", (e) => {
   document.querySelectorAll(".color-dot").forEach((d) => d.classList.toggle("active", d === dot));
 });
 
-$("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));
-$("font-larger").addEventListener("click", () => applyFontSize(loadFontSize() + 2));
 
 // ── Coread inline chat events ──
 $("coread-input").addEventListener("submit", (event) => {
