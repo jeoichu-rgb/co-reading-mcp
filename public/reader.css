@@ -481,6 +481,12 @@ body:not(.has-book) .books {
   backdrop-filter: blur(22px);
 }
 
+.note-form[hidden],
+.submitbar[hidden],
+body:not(.has-chunk) .submitbar {
+  display: none;
+}
+
 .toast {
   position: fixed;
   z-index: 13;
