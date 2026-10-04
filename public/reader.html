@@ -30,7 +30,10 @@
             <p id="book-meta" class="eyebrow">Choose a book</p>
             <h2 id="book-title">Reading shelf</h2>
           </div>
-          <button id="back-to-shelf" class="secondary-button">← Library</button>
+          <div class="panel-head-actions">
+            <button id="export-book" class="secondary-button" disabled>Export</button>
+            <button id="back-to-shelf" class="secondary-button">← Library</button>
+          </div>
         </header>
         <div id="chunks" class="chunk-list"></div>
       </section>
@@ -39,17 +42,13 @@
         <header class="reader-head">
           <div>
             <p id="chunk-file" class="eyebrow">No chapter selected</p>
-            <h2 id="chunk-title">Open a chapter to start reading</h2>
           </div>
           <div class="reader-actions">
             <button id="prev-chunk" class="icon-button" title="Previous chapter" disabled>‹</button>
             <button id="next-chunk" class="icon-button" title="Next chapter" disabled>›</button>
-            <button id="font-smaller" class="icon-button" title="Smaller text">A−</button>
-            <button id="font-larger" class="icon-button" title="Larger text">A+</button>
-            <button id="show-card" class="secondary-button" disabled>Cards</button>
-            <button id="export-book" class="secondary-button" disabled>Export</button>
-            <button id="continue-reading" class="secondary-button" disabled>Continue</button>
             <button id="mark-read" class="secondary-button" disabled>Mark read</button>
+            <button id="continue-reading" class="secondary-button" disabled>Continue</button>
+            <button id="show-card" class="secondary-button" disabled>Cards</button>
           </div>
         </header>
 
@@ -88,7 +87,7 @@
           </div>
         </div>
 
-        <footer class="submitbar">
+        <footer id="submitbar" class="submitbar">
           <span id="status">Private notes stay local until you send them.</span>
           <div class="submit-actions">
             <button id="note-selection" class="secondary-button" disabled>Note selection</button>

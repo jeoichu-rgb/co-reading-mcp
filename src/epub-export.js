@@ -72,6 +72,18 @@ const esc = (s) =>
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
 
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${hh}:${mm}  ${yyyy}/${MM}/${dd}`;
+}
+
 export function buildEpub({ title, author, chapters, annotations, coverData, coverExt }) {
   const uid = `urn:uuid:${crypto.randomUUID()}`;
   const now = new Date().toISOString().replace(/\.\d+Z$/, "Z");
@@ -83,7 +95,8 @@ p{text-indent:0;margin:.6em 0}
 .ann-quote{font-style:italic;color:#8a8883;margin:0 0 6px;padding:6px 0;border-bottom:1px solid #eee}
 .ann-author{font-weight:700;color:#6b5b4b}
 .ann-reply{margin:6px 0 0;padding-left:16px;color:#555;font-size:.95em}
-.ann-reply::before{content:"\\2191  ";color:#aaa}`;
+.ann-reply::before{content:"\\2191  ";color:#aaa}
+.ann-time{color:#aaa;font-size:.85em}`;
 
   const entries = [
     { name: "mimetype", data: "application/epub+zip", store: true },
@@ -132,12 +145,12 @@ p{text-indent:0;margin:.6em 0}
       for (const ann of chunkAnnotations) {
         body += `<div class="ann">`;
         if (ann.quote) body += `<div class="ann-quote">"${esc(ann.quote)}"</div>`;
-        body += `<span class="ann-author">${esc(ann.author)}</span>: ${esc(ann.note)}`;
+        body += `<span class="ann-author">${esc(ann.author)}</span>: ${esc(ann.note)}${ann.createdAt ? ` <span class="ann-time">${esc(formatTimestamp(ann.createdAt))}</span>` : ""}`;
         const replies = annotations
           .filter((a) => a.parentId === ann.id)
           .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
         for (const reply of replies) {
-          body += `<div class="ann-reply"><span class="ann-author">${esc(reply.author)}</span>: ${esc(reply.note)}</div>`;
+          body += `<div class="ann-reply"><span class="ann-author">${esc(reply.author)}</span>: ${esc(reply.note)}${reply.createdAt ? ` <span class="ann-time">${esc(formatTimestamp(reply.createdAt))}</span>` : ""}</div>`;
         }
         body += `</div>\n`;
       }

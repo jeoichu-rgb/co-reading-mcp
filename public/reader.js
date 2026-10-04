@@ -30,11 +30,7 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 const authTokenKey = "co-reading-auth-token";
-const fontSizeKey = "co-reading-font-size";
 const GATEWAY_URL = "https://chat.erikssheep.uk";
-const defaultFontSize = 24;
-const minFontSize = 14;
-const maxFontSize = 40;
 const COVER_GRADIENTS = [
   "linear-gradient(145deg, #e8e2d6, #d5cfc3)",
   "linear-gradient(145deg, #d6dfe8, #c3cdd5)",
@@ -114,17 +110,6 @@ function scrollToPanel(selector) {
   });
 }
 
-function loadFontSize() {
-  return Number(localStorage.getItem(fontSizeKey)) || defaultFontSize;
-}
-
-function applyFontSize(size) {
-  const clamped = Math.max(minFontSize, Math.min(maxFontSize, size));
-  localStorage.setItem(fontSizeKey, clamped);
-  $("text").style.setProperty("--reader-font-size", `${clamped}px`);
-}
-
-applyFontSize(loadFontSize());
 
 function updateChunkNav() {
   const hasPrev = !!state.chunk?.prevId;
@@ -152,6 +137,18 @@ function formatIdentity(author) {
   return value;
 }
 
+function formatTimestamp(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  const MM = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${hh}:${mm}  ${yyyy}/${MM}/${dd}`;
+}
+
 function replyClass(reply, root) {
   const sameAuthor = String(reply.author || "").toLowerCase() === String(root.author || "").toLowerCase();
   return sameAuthor ? "reply root-author" : "reply other-author";
@@ -175,7 +172,7 @@ function renderReply(reply, root, notes, depth = 1, seen = new Set()) {
   const visibleDepth = Math.min(depth, 4);
   return `<div class="${replyClass(reply, root)}" style="--reply-depth: ${visibleDepth}">
     <p class="reply-body">${escapeHtml(reply.note)}</p>
-    <div class="note-meta">${escapeHtml(formatIdentity(reply.author))} · ${escapeHtml(reply.kind || "reply")}</div>
+    <div class="note-meta"><span>${escapeHtml(formatIdentity(reply.author))} · ${escapeHtml(reply.kind || "reply")}</span>${reply.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(reply.createdAt))}</span>` : ""}</div>
     ${
       children.length
         ? `<div class="reply-children">${children
@@ -200,7 +197,7 @@ function renderThread(note, notes) {
 
 function renderInlineNote(note, notes) {
   return `<aside class="inline-note" data-note-id="${escapeHtml(note.id)}">
-    <p class="inline-note-kicker">${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")}</p>
+    <p class="inline-note-kicker"><span>${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")}</span>${note.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(note.createdAt))}</span>` : ""}</p>
     <p class="note-body">${escapeHtml(note.note)}</p>
     ${renderThread(note, notes)}
   </aside>`;
@@ -279,6 +276,10 @@ function renderText() {
         matchLength = fuzzy.length;
       }
     }
+    if (start < 0 && Number.isInteger(requestedOffset) && requestedOffset >= 0 && requestedOffset < text.length) {
+      start = requestedOffset;
+      matchLength = Math.min(quote.length, text.length - requestedOffset);
+    }
     if (!quote || start < 0) continue;
     const end = start + matchLength;
     if (occupied.some((range) => start < range.end && end > range.start)) continue;
@@ -328,7 +329,7 @@ function renderAnnotations() {
         ${isShared ? `<p class="shared-line">这里有两个人的折痕。</p>` : ""}
         <p class="note-quote">${escapeHtml(note.quote)}</p>
         <p class="note-body">${escapeHtml(note.note)}</p>
-        <div class="note-meta">${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")} · ${escapeHtml(note.status || "published")}${replies ? ` · ${replies} replies` : ""}</div>
+        <div class="note-meta"><span>${escapeHtml(formatIdentity(note.author))} · ${escapeHtml(note.kind || "note")} · ${escapeHtml(note.status || "published")}${replies ? ` · ${replies} replies` : ""}</span>${note.createdAt ? `<span class="note-time">${escapeHtml(formatTimestamp(note.createdAt))}</span>` : ""}</div>
         ${
           expanded
             ? renderThread(note, notes)
@@ -564,7 +565,6 @@ async function selectBook(bookId) {
   $("book-meta").textContent = book?.author || "Unknown author";
   $("book-title").textContent = book?.title || bookId;
   $("chunk-file").textContent = "No chapter selected";
-  $("chunk-title").textContent = "Open a chapter to start reading";
   $("text").innerHTML = `<p class="empty">Choose a chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = false;
@@ -592,7 +592,6 @@ function clearBookSelection() {
   $("book-meta").textContent = "Choose a book";
   $("book-title").textContent = "Reading shelf";
   $("chunk-file").textContent = "No chapter selected";
-  $("chunk-title").textContent = "Open a chapter to start reading";
   $("text").innerHTML = `<p class="empty">Select a book and chapter. Highlight text to leave a note for Erik.</p>`;
   $("mark-read").disabled = true;
   $("continue-reading").disabled = true;
@@ -625,7 +624,6 @@ async function selectChunk(chunkId) {
   state.chunk = await api(`/api/books/${encodeURIComponent(state.bookId)}/chunks/${encodeURIComponent(chunkId)}`);
   state.lastFinish = null;
   $("chunk-file").textContent = state.chunk.chunk.id;
-  $("chunk-title").textContent = state.chunk.chunk.title;
   const chunkMeta = state.chunks.find((c) => c.id === chunkId);
   if (chunkMeta?.read) {
     $("mark-read").textContent = "✓ Marked";
@@ -659,6 +657,7 @@ function openNoteForm(quote) {
   $("note-compose").hidden = false;
   $("note-chat").hidden = true;
   $("note-form").hidden = false;
+  $("submitbar").hidden = true;
   $("note").focus();
 }
 
@@ -667,6 +666,7 @@ function closeNoteForm() {
     closeCoreadChat();
   } else {
     $("note-form").hidden = true;
+    $("submitbar").hidden = false;
   }
 }
 
@@ -983,8 +983,6 @@ document.querySelector(".color-picker").addEventListener("click", (e) => {
   document.querySelectorAll(".color-dot").forEach((d) => d.classList.toggle("active", d === dot));
 });
 
-$("font-smaller").addEventListener("click", () => applyFontSize(loadFontSize() - 2));
-$("font-larger").addEventListener("click", () => applyFontSize(loadFontSize() + 2));
 
 // ── Coread inline chat events ──
 $("coread-input").addEventListener("submit", (event) => {
@@ -1081,6 +1079,7 @@ function closeCoreadChat() {
   state.coreadQuote = "";
   state.coreadRootId = null;
   $("note-form").hidden = true;
+  $("submitbar").hidden = false;
   $("note-compose").hidden = false;
   $("note-chat").hidden = true;
   refreshCurrent({ force: true });

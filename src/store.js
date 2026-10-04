@@ -26,6 +26,7 @@ const annotationCache = {
   rows: [],
   bookCounts: new Map(),
   chunkCounts: new Map(),
+  bookLastAnnotatedAt: new Map(),
 };
 let writeQueue = Promise.resolve();
 
@@ -34,9 +35,11 @@ function invalidateAnnotationCache() {
   annotationCache.rows = [];
   annotationCache.bookCounts = new Map();
   annotationCache.chunkCounts = new Map();
+  annotationCache.bookLastAnnotatedAt = new Map();
   annotationCache.publicRows = [];
   annotationCache.publicBookCounts = new Map();
   annotationCache.publicChunkCounts = new Map();
+  annotationCache.publicBookLastAnnotatedAt = new Map();
 }
 
 async function withWriteLock(operation) {
@@ -484,28 +487,37 @@ async function annotationSummary() {
 
   const rows = await readAllAnnotations();
   const publicRows = visibleAnnotations(rows);
-  const { bookCounts, chunkCounts } = countAnnotationRows(rows);
+  const { bookCounts, chunkCounts, bookLastAnnotatedAt } = countAnnotationRows(rows);
   const publicCounts = countAnnotationRows(publicRows);
 
   annotationCache.signature = signature;
   annotationCache.rows = rows;
   annotationCache.bookCounts = bookCounts;
   annotationCache.chunkCounts = chunkCounts;
+  annotationCache.bookLastAnnotatedAt = bookLastAnnotatedAt;
   annotationCache.publicRows = publicRows;
   annotationCache.publicBookCounts = publicCounts.bookCounts;
   annotationCache.publicChunkCounts = publicCounts.chunkCounts;
+  annotationCache.publicBookLastAnnotatedAt = publicCounts.bookLastAnnotatedAt;
   return annotationCache;
 }
 
 function countAnnotationRows(rows) {
   const bookCounts = new Map();
   const chunkCounts = new Map();
+  const bookLastAnnotatedAt = new Map();
   for (const annotation of rows) {
     bookCounts.set(annotation.bookId, (bookCounts.get(annotation.bookId) || 0) + 1);
     const chunkKey = chunkContextKey(annotation.bookId, annotation.chunkId);
     chunkCounts.set(chunkKey, (chunkCounts.get(chunkKey) || 0) + 1);
+    if (annotation.createdAt) {
+      const prev = bookLastAnnotatedAt.get(annotation.bookId);
+      if (!prev || annotation.createdAt > prev) {
+        bookLastAnnotatedAt.set(annotation.bookId, annotation.createdAt);
+      }
+    }
   }
-  return { bookCounts, chunkCounts };
+  return { bookCounts, chunkCounts, bookLastAnnotatedAt };
 }
 
 function isHumanAuthor(author) {
@@ -551,6 +563,7 @@ export async function listBooks({ includePrivate = false } = {}) {
   const progress = await loadProgress();
   const annotations = await annotationSummary();
   const bookCounts = includePrivate ? annotations.bookCounts : annotations.publicBookCounts;
+  const bookLastAnnotatedAt = includePrivate ? annotations.bookLastAnnotatedAt : annotations.publicBookLastAnnotatedAt;
 
   const books = [];
   for (const entry of entries) {
@@ -558,6 +571,10 @@ export async function listBooks({ includePrivate = false } = {}) {
     try {
       const manifest = await loadManifest(entry.name);
       const summary = progressSummary(manifest, progress[manifest.bookId] || {});
+      const lastAnnotatedAt = bookLastAnnotatedAt.get(manifest.bookId) || null;
+      const importedAt = manifest.createdAt || null;
+      const lastModifiedAt = [summary.lastReadAt, lastAnnotatedAt, importedAt]
+        .filter(Boolean).sort().pop() || null;
       books.push({
         bookId: manifest.bookId,
         title: manifest.title,
@@ -569,13 +586,21 @@ export async function listBooks({ includePrivate = false } = {}) {
         annotationCount: bookCounts.get(manifest.bookId) || 0,
         lastChunkId: summary.lastChunkId,
         lastReadAt: summary.lastReadAt,
+        lastAnnotatedAt,
+        importedAt,
+        lastModifiedAt,
         complete: summary.complete,
       });
     } catch {
       // Ignore broken book folders, but keep the server usable.
     }
   }
-  return books.sort((a, b) => a.title.localeCompare(b.title));
+  return books.sort((a, b) => {
+    if (a.lastModifiedAt && b.lastModifiedAt) return b.lastModifiedAt.localeCompare(a.lastModifiedAt);
+    if (a.lastModifiedAt) return -1;
+    if (b.lastModifiedAt) return 1;
+    return a.title.localeCompare(b.title);
+  });
 }
 
 function rowReferencesBook(row, bookIds) {
@@ -1233,7 +1258,8 @@ export async function listAnnotations({ bookId, chunkId, kind, author, status, p
 
 export async function annotatePassage(input) {
   return withWriteLock(async () => {
-    const { bookId, chunkId, quote, note } = input;
+    const { bookId, chunkId, note } = input;
+    let quote = input.quote;
     if (!bookId) throw new Error("bookId is required");
     if (!chunkId) throw new Error("chunkId is required");
     if (!quote) throw new Error("quote is required");
@@ -1251,7 +1277,10 @@ export async function annotatePassage(input) {
       const pattern = quote.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
       try {
         const m = new RegExp(pattern).exec(chunk.text);
-        if (m) quoteOffset = m.index;
+        if (m) {
+          quoteOffset = m.index;
+          quote = m[0];
+        }
       } catch {}
     }
     const author = input.author || "claude";
