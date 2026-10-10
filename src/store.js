@@ -780,35 +780,69 @@ async function resolveContinueBook(bookId) {
   return loadManifest(selected.bookId);
 }
 
-function nextChunkForProgress(manifest, progressEntry = {}) {
+function nextChunkForProgress(manifest, progressEntry = {}, { reader = "jeoi" } = {}) {
   const chunks = sortedChunks(manifest);
-  const readIds = validReadIds(manifest, progressEntry);
-  const lastIndex = chunks.findIndex((chunk) => chunk.id === progressEntry.lastChunkId);
+  const isErik = reader === "erik";
+
+  // Pick the right read-set and last-chunk based on reader
+  const readIds = isErik
+    ? validErikReadIds(manifest, progressEntry)
+    : validReadIds(manifest, progressEntry);
+  const lastChunkId = isErik
+    ? progressEntry.erikLastChunkId
+    : progressEntry.lastChunkId;
+
+  // For Erik, enforce the Jeoi lock — only consider chunks Jeoi has already read
+  const jeoiReadIds = isErik ? validReadIds(manifest, progressEntry) : null;
+
+  const isAvailable = (chunk) => {
+    if (readIds.has(chunk.id)) return false;
+    if (jeoiReadIds && !jeoiReadIds.has(chunk.id)) return false;
+    return true;
+  };
+
+  const lastIndex = chunks.findIndex((chunk) => chunk.id === lastChunkId);
   if (lastIndex >= 0) {
-    const afterLast = chunks.slice(lastIndex + 1).find((chunk) => !readIds.has(chunk.id));
+    const afterLast = chunks.slice(lastIndex + 1).find(isAvailable);
     if (afterLast) return { chunk: afterLast, reason: "after-last-read" };
   }
 
-  const firstUnread = chunks.find((chunk) => !readIds.has(chunk.id));
+  const firstUnread = chunks.find(isAvailable);
   if (firstUnread) return { chunk: firstUnread, reason: lastIndex >= 0 ? "first-unread" : "first-unread-no-last" };
 
   return { chunk: null, reason: "complete" };
 }
 
-export async function continueReading({ bookId } = {}) {
+export async function continueReading({ bookId, reader = "jeoi" } = {}) {
   const manifest = await resolveContinueBook(bookId);
   const progress = await loadProgress();
-  const summary = progressSummary(manifest, progress[manifest.bookId] || {});
-  const selection = nextChunkForProgress(manifest, progress[manifest.bookId] || {});
+  const progressEntry = progress[manifest.bookId] || {};
+  const summary = progressSummary(manifest, progressEntry);
+  const selection = nextChunkForProgress(manifest, progressEntry, { reader });
+
+  const isErik = reader === "erik";
+  const chunksRead = isErik ? summary.erikChunksRead : summary.chunksRead;
 
   if (!selection.chunk) {
+    // Erik may have caught up to Jeoi's progress — book isn't done, just locked
+    if (isErik && !summary.complete) {
+      return {
+        bookId: manifest.bookId,
+        title: manifest.title,
+        author: manifest.author || null,
+        progress: summary,
+        completed: false,
+        caughtUp: true,
+        message: `Caught up with Jeoi on ${manifest.title} (${chunksRead}/${summary.chunkCount}). Waiting for new chapters.`,
+      };
+    }
     return {
       bookId: manifest.bookId,
       title: manifest.title,
       author: manifest.author || null,
       progress: summary,
       completed: true,
-      message: `Already finished ${manifest.title}: ${summary.chunksRead}/${summary.chunkCount} chunks read.`,
+      message: `Already finished ${manifest.title}: ${chunksRead}/${summary.chunkCount} chunks read.`,
     };
   }
 
@@ -818,7 +852,7 @@ export async function continueReading({ bookId } = {}) {
     progress: summary,
     selectedReason: selection.reason,
     completed: false,
-    message: `Continue ${manifest.title} at ${selection.chunk.title} (${summary.chunksRead}/${summary.chunkCount} read).`,
+    message: `Continue ${manifest.title} at ${selection.chunk.title} (${chunksRead}/${summary.chunkCount} read).`,
   };
 }
 

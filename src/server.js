@@ -479,7 +479,7 @@ export async function callTool(name, args = {}) {
       await assertJeoiHasRead(args.bookId, args.chunkId);
       return textContent(await readChunk(args.bookId, args.chunkId));
     case "reading_continue":
-      return textContent(await continueReading(args));
+      return textContent(await continueReading({ ...args, reader: "erik" }));
     case "reading_search_chunks": {
       const raw = await searchChunks(args);
       const progressData = await loadProgress();

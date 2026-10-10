@@ -114,7 +114,7 @@ export async function handleApi(req, res, url, options = {}) {
   }
 
   if (req.method === "GET" && parts.length === 2 && parts[1] === "continue") {
-    return sendJson(res, 200, await continueReading({ bookId: url.searchParams.get("bookId") || undefined }));
+    return sendJson(res, 200, await continueReading({ bookId: url.searchParams.get("bookId") || undefined, reader: "jeoi" }));
   }
 
   if (req.method === "GET" && parts.length === 2 && parts[1] === "annotations") {
